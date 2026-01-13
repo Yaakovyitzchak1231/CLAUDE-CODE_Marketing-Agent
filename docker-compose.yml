@@ -1,0 +1,306 @@
+version: '3.8'
+
+services:
+  # ==================== ORCHESTRATION ====================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-changeme}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - WEBHOOK_URL=http://n8n:5678/
+      - GENERIC_TIMEZONE=America/New_York
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-n8npassword}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/custom-nodes:/home/node/.n8n/custom
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - marketing_network
+
+  # ==================== LLM SERVICES ====================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - marketing_network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # LangChain Python Service
+  langchain_service:
+    build:
+      context: ./langchain-service
+      dockerfile: Dockerfile
+    container_name: langchain_service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      # Core Services
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=marketing
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-n8npassword}
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Media Generation APIs
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MIDJOURNEY_API_KEY=${MIDJOURNEY_API_KEY}
+      - RUNWAY_API_KEY=${RUNWAY_API_KEY}
+      - PIKA_API_KEY=${PIKA_API_KEY}
+      # Publishing APIs
+      - LINKEDIN_ACCESS_TOKEN=${LINKEDIN_ACCESS_TOKEN}
+      - WORDPRESS_URL=${WORDPRESS_URL}
+      - WORDPRESS_USERNAME=${WORDPRESS_USERNAME}
+      - WORDPRESS_PASSWORD=${WORDPRESS_PASSWORD}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+    volumes:
+      - ./langchain-service:/app
+      - langchain_models:/app/models
+      - streamlit_media:/app/media
+    depends_on:
+      - ollama
+      - postgres
+      - chroma
+      - redis
+    networks:
+      - marketing_network
+
+  # ==================== DATABASES ====================
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-n8npassword}
+      - POSTGRES_DB=n8n
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - marketing_network
+
+  # Vector Database - Chroma
+  chroma:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: chroma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - marketing_network
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    networks:
+      - marketing_network
+
+  # ==================== SEARCH & SCRAPING ====================
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080
+    networks:
+      - marketing_network
+
+  # Playwright Service for Browser Automation
+  playwright_service:
+    build:
+      context: ./playwright-service
+      dockerfile: Dockerfile
+    container_name: playwright_service
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./playwright-service:/app
+      - playwright_cache:/home/pwuser/.cache
+    depends_on:
+      - redis
+    networks:
+      - marketing_network
+
+  # Scrapy Service
+  scrapy_service:
+    build:
+      context: ./scrapy-service
+      dockerfile: Dockerfile
+    container_name: scrapy_service
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=marketing
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-n8npassword}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./scrapy-service:/app
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - marketing_network
+
+  # ==================== ANALYTICS ====================
+  matomo:
+    image: matomo:latest
+    container_name: matomo
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    environment:
+      - MATOMO_DATABASE_HOST=postgres
+      - MATOMO_DATABASE_ADAPTER=pgsql
+      - MATOMO_DATABASE_TABLES_PREFIX=matomo_
+      - MATOMO_DATABASE_DBNAME=matomo
+      - MATOMO_DATABASE_USERNAME=${POSTGRES_USER:-n8n}
+      - MATOMO_DATABASE_PASSWORD=${POSTGRES_PASSWORD:-n8npassword}
+    volumes:
+      - matomo_data:/var/www/html
+    depends_on:
+      - postgres
+    networks:
+      - marketing_network
+
+  # ==================== DASHBOARD ====================
+  streamlit_dashboard:
+    build:
+      context: ./streamlit-dashboard
+      dockerfile: Dockerfile
+    container_name: streamlit_dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=marketing
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-n8npassword}
+      - N8N_API_URL=http://n8n:5678/api/v1
+      - N8N_API_KEY=${N8N_API_KEY}
+    volumes:
+      - ./streamlit-dashboard:/app
+    depends_on:
+      - postgres
+      - n8n
+    networks:
+      - marketing_network
+
+  # ==================== UTILITIES ====================
+  # Adminer for Database Management
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    depends_on:
+      - postgres
+    networks:
+      - marketing_network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - n8n
+      - streamlit_dashboard
+      - langchain_service
+      - matomo
+      - searxng
+    networks:
+      - marketing_network
+
+networks:
+  marketing_network:
+    driver: bridge
+
+volumes:
+  n8n_data:
+  ollama_data:
+  postgres_data:
+  chroma_data:
+  redis_data:
+  matomo_data:
+  langchain_models:
+  playwright_cache:
+  streamlit_media:

@@ -1,0 +1,65 @@
+# Environment variables
+.env
+*.env.local
+
+# Docker volumes data
+postgres_data/
+redis_data/
+chroma_data/
+n8n_data/
+ollama_data/
+matomo_data/
+langchain_models/
+playwright_cache/
+streamlit_media/
+
+# Logs
+*.log
+logs/
+nginx/logs/
+
+# SSL certificates
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backup files
+*.bak
+backup/
+
+# Node modules (if any)
+node_modules/
+
+# API keys (double check)
+*_credentials.json
+*_token.json
+
+# Claude temp directories
+tmpclaude-*

@@ -1,0 +1,241 @@
+# SearXNG Configuration for B2B Marketing Automation Platform
+# Optimized for research, competitor analysis, and trend detection
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "Marketing Research Search"
+  privacypolicy_url: false
+  donation_url: false
+  contact_url: false
+  enable_metrics: true
+
+brand:
+  new_issue_url: false
+  docs_url: false
+  public_instances: false
+  wiki_url: false
+
+search:
+  safe_search: 0  # 0=none, 1=moderate, 2=strict
+  autocomplete: "google"
+  autocomplete_min: 4
+  default_lang: "en"
+  formats:
+    - html
+    - json
+    - csv
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "${SEARXNG_SECRET:-changeme}"  # Set in .env
+  limiter: true
+  public_instance: false
+  image_proxy: true
+  http_protocol_version: "1.1"
+
+ui:
+  static_use_hash: true
+  default_locale: "en"
+  query_in_title: true
+  infinite_scroll: false
+  center_alignment: false
+  theme_args:
+    simple_style: auto
+  default_theme: simple
+  results_on_new_tab: false
+
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 20.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
+  retries: 1
+  max_redirects: 5
+
+# Search engines configuration
+engines:
+  # ==================== GENERAL WEB SEARCH ====================
+  - name: google
+    engine: google
+    shortcut: go
+    disabled: false
+    use_mobile_ui: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+    time_range_support: true
+
+  # ==================== BUSINESS & TECH NEWS ====================
+  - name: google news
+    engine: google_news
+    shortcut: gn
+    disabled: false
+
+  - name: reddit
+    engine: reddit
+    shortcut: re
+    disabled: false
+    time_range_support: true
+
+  - name: hackernews
+    engine: xpath
+    search_url: https://hn.algolia.com/api/v1/search?query={query}&tags=story
+    url_xpath: //a[@class="Story_link"]/@href
+    title_xpath: //a[@class="Story_link"]
+    content_xpath: //div[@class="Story_comment"]
+    shortcut: hn
+    disabled: false
+
+  - name: twitter
+    engine: twitter
+    shortcut: tw
+    disabled: true  # Requires API key
+
+  # ==================== ACADEMIC & RESEARCH ====================
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+
+  - name: arxiv
+    engine: arxiv
+    shortcut: arx
+    disabled: false
+    timeout: 10.0
+
+  # ==================== CODE & DEVELOPMENT ====================
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+
+  - name: stackoverflow
+    engine: stackoverflow
+    shortcut: st
+    disabled: false
+
+  # ==================== VIDEO ====================
+  - name: youtube
+    engine: youtube_noapi
+    shortcut: yt
+    disabled: false
+
+  - name: vimeo
+    engine: vimeo
+    shortcut: vm
+    disabled: false
+
+  # ==================== IMAGES ====================
+  - name: google images
+    engine: google_images
+    shortcut: goi
+    disabled: false
+
+  - name: unsplash
+    engine: unsplash
+    shortcut: us
+    disabled: false
+
+  # ==================== BUSINESS DIRECTORIES ====================
+  - name: wikidata
+    engine: wikidata
+    shortcut: wd
+    disabled: false
+    timeout: 10.0
+
+  # ==================== SOCIAL MEDIA ====================
+  - name: lemmy communities
+    engine: lemmy
+    lemmy_type: Communities
+    shortcut: leco
+    disabled: false
+
+  - name: lemmy posts
+    engine: lemmy
+    lemmy_type: Posts
+    shortcut: lepo
+    disabled: false
+
+  # ==================== E-COMMERCE (for competitor analysis) ====================
+  - name: amazon
+    engine: xpath
+    search_url: https://www.amazon.com/s?k={query}
+    url_xpath: //h2[@class="a-size-mini"]//a/@href
+    title_xpath: //h2[@class="a-size-mini"]
+    content_xpath: //div[@class="a-row"]//span[@class="a-price-whole"]
+    shortcut: az
+    disabled: true  # Enable if needed
+
+# Enabled plugins
+enabled_plugins:
+  - 'Hash plugin'
+  - 'Search on category select'
+  - 'Self Information'
+  - 'Tracker URL remover'
+  - 'Hostname replace'
+
+# Disable plugins
+disabled_plugins:
+  - 'Open Access DOI rewrite'
+
+# Plugin configurations
+plugins:
+  - name: 'Hostname replace'
+    config:
+      '(.*\.)?youtube\.com$': 'invidious.io'
+      '(.*\.)?reddit\.com$': 'teddit.net'
+      '(.*\.)?twitter\.com$': 'nitter.net'
+
+# Categories
+categories_as_tabs:
+  general:
+  news:
+  social media:
+  images:
+  videos:
+  files:
+  science:
+  it:
+
+# Locales
+locales:
+  en: English
+
+# Enabled categories
+enabled_categories:
+  - general
+  - news
+  - social media
+  - images
+  - videos
+  - it
+  - science
+
+# Rate limiting (prevent abuse)
+limiter:
+  botdetection.ip_limit:
+    link_token: true
+    filter_link_local: true
+    window: 3600
+    max_connections: 100
+
+# Redis caching
+redis:
+  url: redis://redis:6379/2  # Using DB 2 for API response cache

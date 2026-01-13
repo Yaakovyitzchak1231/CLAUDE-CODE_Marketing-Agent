@@ -1,0 +1,4 @@
+# SSL certificates directory
+# Place your SSL certificates here for HTTPS
+
+# .gitkeep ensures this directory is tracked in git even when empty
