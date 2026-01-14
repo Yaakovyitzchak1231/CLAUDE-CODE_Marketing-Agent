@@ -1,0 +1,14 @@
+# Publishing Package Dependencies
+
+# HTTP Requests
+requests==2.31.0
+
+# Email (built-in)
+# smtplib - standard library
+# email - standard library
+
+# XML-RPC (built-in for WordPress)
+# xmlrpc.client - standard library (Python 3)
+
+# Utilities
+python-dotenv==1.0.0
