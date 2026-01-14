@@ -61,5 +61,6 @@ node_modules/
 *_credentials.json
 *_token.json
 
-# Claude temp directories
+# Claude temp directories and internal files
 tmpclaude-*
+.claude/
