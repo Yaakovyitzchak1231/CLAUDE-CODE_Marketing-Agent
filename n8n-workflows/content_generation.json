@@ -1,0 +1,251 @@
+{
+  "name": "Content Generation Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "content/generate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-generate",
+      "name": "Webhook - Generate Content",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "content-generate-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM campaigns WHERE id = {{ $json.body.campaign_id }}",
+        "additionalFields": {}
+      },
+      "id": "get-campaign",
+      "name": "Get Campaign Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM research_results WHERE campaign_id = {{ $json.campaign_id }} ORDER BY created_at DESC LIMIT 10",
+        "additionalFields": {}
+      },
+      "id": "get-research",
+      "name": "Get Recent Research",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/storage/vector-embeddings/search",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"collection_name\": \"content_library\",\n  \"query\": \"{{ $json.topic }}\",\n  \"k\": 5,\n  \"filter\": {\n    \"content_type\": \"{{ $json.content_type }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "find-similar",
+      "name": "Find Similar Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/content",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"topic\": \"{{ $json.topic }}\",\n  \"content_type\": \"{{ $json.content_type }}\",\n  \"target_audience\": \"{{ $('Get Campaign Details').item.json.target_audience }}\",\n  \"brand_voice\": {{ $('Get Campaign Details').item.json.branding_json }},\n  \"research_context\": {{ $('Get Recent Research').all() }},\n  \"similar_content\": {{ $json.similar_content }},\n  \"length\": \"{{ $json.length || 'medium' }}\",\n  \"tone\": \"{{ $json.tone || 'professional' }}\",\n  \"include_cta\": {{ $json.include_cta || true }}\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "generate-content",
+      "name": "Generate Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/chains/seo-optimizer",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"content\": \"{{ $json.content }}\",\n  \"target_keywords\": {{ $json.target_keywords || [] }}\n}",
+        "options": {}
+      },
+      "id": "optimize-seo",
+      "name": "Optimize SEO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/grammar-check",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"text\": \"{{ $json.enhanced_content }}\"\n}",
+        "options": {}
+      },
+      "id": "check-grammar",
+      "name": "Check Grammar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all content generation results\nconst campaign = $('Get Campaign Details').item.json;\nconst generatedContent = $('Generate Content').item.json;\nconst seoOptimized = $('Optimize SEO').item.json;\nconst grammarChecked = $('Check Grammar').item.json;\n\nconst draft = {\n  campaign_id: campaign.id,\n  type: $('Webhook - Generate Content').item.json.body.content_type,\n  title: generatedContent.title,\n  content: seoOptimized.enhanced_content || generatedContent.content,\n  meta_description: seoOptimized.meta_data?.description,\n  meta_keywords: seoOptimized.keyword_analysis?.primary_keywords?.join(', '),\n  seo_score: seoOptimized.seo_score?.total_score || 0,\n  word_count: (seoOptimized.enhanced_content || generatedContent.content).split(' ').length,\n  status: 'draft',\n  metadata: {\n    topic: $('Webhook - Generate Content').item.json.body.topic,\n    tone: $('Webhook - Generate Content').item.json.body.tone || 'professional',\n    length: $('Webhook - Generate Content').item.json.body.length || 'medium',\n    seo_recommendations: seoOptimized.seo_score?.recommendations || [],\n    grammar_issues: grammarChecked.issues?.length || 0,\n    reading_time: Math.ceil((seoOptimized.enhanced_content || generatedContent.content).split(' ').length / 200),\n    generated_at: new Date().toISOString()\n  }\n};\n\nreturn draft;"
+      },
+      "id": "prepare-draft",
+      "name": "Prepare Content Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 350]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "content_drafts",
+        "columns": "campaign_id, type, content, seo_score, status, created_at",
+        "returnFields": "id, campaign_id, type, status",
+        "additionalFields": {}
+      },
+      "id": "save-draft",
+      "name": "Save Content Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1450, 350],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "content_versions",
+        "columns": "draft_id, version_number, content, created_by, created_at",
+        "additionalFields": {}
+      },
+      "id": "create-version",
+      "name": "Create Version 1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1450, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/storage/vector-embeddings/add",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"collection_name\": \"content_library\",\n  \"texts\": [\"{{ $json.content }}\"],\n  \"metadatas\": [{\n    \"draft_id\": {{ $json.id }},\n    \"campaign_id\": {{ $json.campaign_id }},\n    \"content_type\": \"{{ $json.type }}\",\n    \"status\": \"{{ $json.status }}\",\n    \"seo_score\": {{ $json.seo_score }},\n    \"created_at\": \"{{ $json.metadata.generated_at }}\"\n  }],\n  \"chunk_strategy\": \"recursive\"\n}",
+        "options": {}
+      },
+      "id": "store-embedding",
+      "name": "Store Content Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 350]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5678/webhook/content-review",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"draft_id\": {{ $json.id }},\n  \"campaign_id\": {{ $json.campaign_id }},\n  \"content_type\": \"{{ $json.type }}\",\n  \"title\": \"{{ $json.title }}\",\n  \"word_count\": {{ $json.word_count }},\n  \"seo_score\": {{ $json.seo_score }},\n  \"action\": \"new_draft_for_review\",\n  \"dashboard_url\": \"http://localhost:8501/content_review?draft_id={{ $json.id }}\"\n}",
+        "options": {}
+      },
+      "id": "trigger-review",
+      "name": "Trigger Review Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1850, 350]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Content generated successfully and sent for review\",\n  \"draft_id\": {{ $json.id }},\n  \"campaign_id\": {{ $json.campaign_id }},\n  \"content_type\": \"{{ $json.type }}\",\n  \"title\": \"{{ $json.title }}\",\n  \"word_count\": {{ $json.word_count }},\n  \"seo_score\": {{ $json.seo_score }},\n  \"reading_time_minutes\": {{ $json.metadata.reading_time }},\n  \"status\": \"{{ $json.status }}\",\n  \"next_step\": \"Review draft in dashboard\",\n  \"review_url\": \"http://localhost:8501/content_review?draft_id={{ $json.id }}\",\n  \"seo_recommendations\": {{ $json.metadata.seo_recommendations }}\n}",
+        "options": {}
+      },
+      "id": "response-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2050, 350]
+    }
+  ],
+  "connections": {
+    "Webhook - Generate Content": {
+      "main": [
+        [
+          { "node": "Get Campaign Details", "type": "main", "index": 0 },
+          { "node": "Get Recent Research", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Campaign Details": {
+      "main": [[{ "node": "Find Similar Content", "type": "main", "index": 0 }]]
+    },
+    "Find Similar Content": {
+      "main": [[{ "node": "Generate Content", "type": "main", "index": 0 }]]
+    },
+    "Generate Content": {
+      "main": [
+        [
+          { "node": "Optimize SEO", "type": "main", "index": 0 },
+          { "node": "Check Grammar", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Optimize SEO": {
+      "main": [[{ "node": "Prepare Content Draft", "type": "main", "index": 0 }]]
+    },
+    "Check Grammar": {
+      "main": [[{ "node": "Prepare Content Draft", "type": "main", "index": 0 }]]
+    },
+    "Prepare Content Draft": {
+      "main": [[{ "node": "Save Content Draft", "type": "main", "index": 0 }]]
+    },
+    "Save Content Draft": {
+      "main": [
+        [
+          { "node": "Create Version 1", "type": "main", "index": 0 },
+          { "node": "Store Content Embedding", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Store Content Embedding": {
+      "main": [[{ "node": "Trigger Review Workflow", "type": "main", "index": 0 }]]
+    },
+    "Trigger Review Workflow": {
+      "main": [[{ "node": "Respond Success", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

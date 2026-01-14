@@ -1,0 +1,258 @@
+{
+  "name": "User Onboarding Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "onboarding-start",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-start",
+      "name": "Webhook - Start Onboarding",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "onboarding-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "users",
+        "columns": "email, company, created_at",
+        "returnFields": "id, email",
+        "additionalFields": {}
+      },
+      "id": "create-user",
+      "name": "Create User Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/research",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"query\": \"Extract branding information from website: {{ $json.website_url }}\",\n  \"max_results\": 5\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "extract-branding",
+      "name": "Extract Branding from Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse branding information from research results\nconst results = $input.all();\nconst researchData = results[0].json;\n\n// Extract branding elements\nconst branding = {\n  primary_color: null,\n  secondary_color: null,\n  logo_url: null,\n  font_family: null,\n  brand_voice: null\n};\n\n// Simple color extraction from content\nconst content = researchData.results?.content || '';\nconst colorMatches = content.match(/#[0-9A-Fa-f]{6}/g);\nif (colorMatches && colorMatches.length > 0) {\n  branding.primary_color = colorMatches[0];\n  if (colorMatches.length > 1) {\n    branding.secondary_color = colorMatches[1];\n  }\n}\n\n// Extract logo (look for common logo image patterns)\nconst logoMatch = content.match(/(logo\\.(png|jpg|svg)|brand\\.(png|jpg|svg))/i);\nif (logoMatch) {\n  branding.logo_url = logoMatch[0];\n}\n\nreturn {\n  user_id: $('Create User Record').item.json.id,\n  email: $('Create User Record').item.json.email,\n  website_url: $('Webhook - Start Onboarding').item.json.body.website_url,\n  company: $('Webhook - Start Onboarding').item.json.body.company,\n  branding: branding\n};"
+      },
+      "id": "process-branding",
+      "name": "Process Branding Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "questions-1",
+              "name": "question_1",
+              "value": "What are your main marketing goals? (Select all that apply)",
+              "type": "string"
+            },
+            {
+              "id": "questions-2",
+              "name": "question_2",
+              "value": "Who is your target audience?",
+              "type": "string"
+            },
+            {
+              "id": "questions-3",
+              "name": "question_3",
+              "value": "What types of content do you want to create? (blog posts, social media, emails, etc.)",
+              "type": "string"
+            },
+            {
+              "id": "questions-4",
+              "name": "question_4",
+              "value": "How often do you want to publish content?",
+              "type": "string"
+            },
+            {
+              "id": "questions-5",
+              "name": "question_5",
+              "value": "What are your main competitors?",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "prepare-questions",
+      "name": "Prepare Onboarding Questions",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"user_id\": {{ $json.user_id }},\n  \"email\": \"{{ $json.email }}\",\n  \"company\": \"{{ $json.company }}\",\n  \"branding\": {{ $json.branding }},\n  \"onboarding_questions\": [\n    {\n      \"question\": \"{{ $('Prepare Onboarding Questions').item.json.question_1 }}\",\n      \"type\": \"multi_select\",\n      \"options\": [\"Brand Awareness\", \"Lead Generation\", \"Customer Education\", \"Thought Leadership\", \"Product Marketing\"]\n    },\n    {\n      \"question\": \"{{ $('Prepare Onboarding Questions').item.json.question_2 }}\",\n      \"type\": \"text\"\n    },\n    {\n      \"question\": \"{{ $('Prepare Onboarding Questions').item.json.question_3 }}\",\n      \"type\": \"multi_select\",\n      \"options\": [\"Blog Posts\", \"Social Media Posts\", \"Email Newsletters\", \"Case Studies\", \"Whitepapers\", \"Videos\"]\n    },\n    {\n      \"question\": \"{{ $('Prepare Onboarding Questions').item.json.question_4 }}\",\n      \"type\": \"single_select\",\n      \"options\": [\"Daily\", \"2-3 times per week\", \"Weekly\", \"Bi-weekly\", \"Monthly\"]\n    },\n    {\n      \"question\": \"{{ $('Prepare Onboarding Questions').item.json.question_5 }}\",\n      \"type\": \"text\",\n      \"placeholder\": \"Enter competitor URLs or company names\"\n    }\n  ],\n  \"next_step\": \"/api/onboarding/submit-answers\",\n  \"message\": \"We've extracted some branding information from your website. Please answer a few questions to complete your profile.\"\n}",
+        "options": {}
+      },
+      "id": "response-questions",
+      "name": "Respond with Questions",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "onboarding/submit-answers",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-answers",
+      "name": "Webhook - Submit Answers",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 500],
+      "webhookId": "onboarding-answers-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "campaigns",
+        "columns": "user_id, name, target_audience, branding_json, status, created_at",
+        "additionalFields": {}
+      },
+      "id": "create-campaign",
+      "name": "Create Campaign",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "competitors",
+        "columns": "campaign_id, name, url, last_scraped, data_json",
+        "mode": "insert",
+        "additionalFields": {}
+      },
+      "id": "add-competitors",
+      "name": "Add Competitors",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [650, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/market-analysis",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"target_audience\": \"{{ $json.target_audience }}\",\n  \"campaign_id\": {{ $json.campaign_id }}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "analyze-audience",
+      "name": "Analyze Target Audience",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 500]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "market_insights",
+        "columns": "campaign_id, segment, insights_json, created_at",
+        "additionalFields": {}
+      },
+      "id": "store-insights",
+      "name": "Store Market Insights",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Onboarding completed successfully!\",\n  \"campaign_id\": {{ $json.campaign_id }},\n  \"user_id\": {{ $json.user_id }},\n  \"target_audience\": \"{{ $json.target_audience }}\",\n  \"competitors_added\": {{ $json.competitors_count }},\n  \"market_insights_generated\": true,\n  \"next_steps\": [\n    \"Review your campaign dashboard\",\n    \"Start generating content\",\n    \"Monitor competitor activity\"\n  ],\n  \"dashboard_url\": \"http://localhost:8501?campaign_id={{ $json.campaign_id }}\"\n}",
+        "options": {}
+      },
+      "id": "response-complete",
+      "name": "Respond Onboarding Complete",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 500]
+    }
+  ],
+  "connections": {
+    "Webhook - Start Onboarding": {
+      "main": [[{ "node": "Create User Record", "type": "main", "index": 0 }]]
+    },
+    "Create User Record": {
+      "main": [[{ "node": "Extract Branding from Website", "type": "main", "index": 0 }]]
+    },
+    "Extract Branding from Website": {
+      "main": [[{ "node": "Process Branding Data", "type": "main", "index": 0 }]]
+    },
+    "Process Branding Data": {
+      "main": [[{ "node": "Prepare Onboarding Questions", "type": "main", "index": 0 }]]
+    },
+    "Prepare Onboarding Questions": {
+      "main": [[{ "node": "Respond with Questions", "type": "main", "index": 0 }]]
+    },
+    "Webhook - Submit Answers": {
+      "main": [[{ "node": "Create Campaign", "type": "main", "index": 0 }]]
+    },
+    "Create Campaign": {
+      "main": [[{ "node": "Add Competitors", "type": "main", "index": 0 }]]
+    },
+    "Add Competitors": {
+      "main": [[{ "node": "Analyze Target Audience", "type": "main", "index": 0 }]]
+    },
+    "Analyze Target Audience": {
+      "main": [[{ "node": "Store Market Insights", "type": "main", "index": 0 }]]
+    },
+    "Store Market Insights": {
+      "main": [[{ "node": "Respond Onboarding Complete", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 2,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

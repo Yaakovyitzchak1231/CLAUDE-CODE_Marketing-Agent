@@ -1,0 +1,423 @@
+{
+  "name": "Trend Monitoring Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily",
+      "name": "Schedule - Daily Trend Analysis",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT topic, keywords FROM campaigns WHERE status = 'active' ORDER BY created_at DESC",
+        "additionalFields": {}
+      },
+      "id": "get-active-campaigns",
+      "name": "Get Active Campaign Topics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "multiplex"
+      },
+      "id": "split-topics",
+      "name": "Split Topics",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://scrapy-service:8003/scrape/reddit",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"subreddits\": [\"business\", \"marketing\", \"entrepreneur\", \"startups\"],\n  \"keywords\": {{ $json.keywords?.split(',') || [$json.topic] }},\n  \"time_filter\": \"day\",\n  \"sort\": \"hot\",\n  \"limit\": 50\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "scrape-reddit",
+      "name": "Scrape Reddit Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "url": "http://scrapy-service:8003/scrape/hackernews",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"keywords\": {{ $json.keywords?.split(',') || [$json.topic] }},\n  \"time_range\": \"24h\",\n  \"min_score\": 10\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "scrape-hackernews",
+      "name": "Scrape HackerNews",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 350]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/research",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"query\": \"{{ $json.topic }} trends {{ new Date().getFullYear() }}\",\n  \"max_results\": 20,\n  \"include_sentiment\": true,\n  \"time_filter\": \"day\"\n}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "search-web-trends",
+      "name": "Search Web for Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 500]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/extract-topics",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"text\": \"{{ $json.all_content }}\",\n  \"max_topics\": 10,\n  \"min_score\": 0.3\n}",
+        "options": {}
+      },
+      "id": "extract-trending-topics",
+      "name": "Extract Trending Topics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 350]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/sentiment-analysis",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"text\": \"{{ $json.all_content }}\",\n  \"batch\": true\n}",
+        "options": {}
+      },
+      "id": "analyze-sentiment",
+      "name": "Analyze Trend Sentiment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate trend data from multiple sources\nconst reddit = $('Scrape Reddit Trends').all();\nconst hn = $('Scrape HackerNews').all();\nconst web = $('Search Web for Trends').all();\nconst topics = $('Extract Trending Topics').item.json;\nconst sentiment = $('Analyze Trend Sentiment').item.json;\n\n// Combine all content\nconst allPosts = [\n  ...reddit.map(r => r.json),\n  ...hn.map(h => h.json),\n  ...web.map(w => w.json)\n];\n\n// Calculate trend scores\nconst topicScores = {};\ntopics.topics?.forEach(topic => {\n  const mentions = allPosts.filter(post => \n    post.title?.toLowerCase().includes(topic.toLowerCase()) ||\n    post.content?.toLowerCase().includes(topic.toLowerCase())\n  ).length;\n  \n  const avgScore = allPosts\n    .filter(post => \n      post.title?.toLowerCase().includes(topic.toLowerCase()) ||\n      post.content?.toLowerCase().includes(topic.toLowerCase())\n    )\n    .reduce((sum, post) => sum + (post.score || post.upvotes || 1), 0) / (mentions || 1);\n  \n  topicScores[topic] = {\n    topic: topic,\n    mention_count: mentions,\n    avg_engagement_score: Math.round(avgScore),\n    trend_score: Math.round((mentions * avgScore) / 10),\n    sentiment: sentiment.sentiment || 'neutral',\n    sources: {\n      reddit: reddit.length,\n      hackernews: hn.length,\n      web: web.length\n    }\n  };\n});\n\n// Sort by trend score\nconst rankedTrends = Object.values(topicScores)\n  .sort((a, b) => b.trend_score - a.trend_score)\n  .slice(0, 20);\n\nreturn rankedTrends.map(trend => ({\n  ...trend,\n  detected_at: new Date().toISOString(),\n  campaign_topic: $('Split Topics').item.json.topic\n}));"
+      },
+      "id": "calculate-trend-scores",
+      "name": "Calculate Trend Scores",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-emerging",
+              "leftValue": "={{ $json.trend_score }}",
+              "rightValue": "50",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-emerging-trend",
+      "name": "If Emerging Trend",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1450, 350]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "trends",
+        "columns": "topic, score, source, metadata, detected_at",
+        "returnFields": "id, topic, score",
+        "additionalFields": {}
+      },
+      "id": "save-trend",
+      "name": "Save Emerging Trend",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/storage/vector-embeddings/add",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"collection_name\": \"trending_topics\",\n  \"texts\": [\"{{ $json.topic }}: {{ $json.mention_count }} mentions, sentiment: {{ $json.sentiment }}\"],\n  \"metadatas\": [{\n    \"topic\": \"{{ $json.topic }}\",\n    \"trend_score\": {{ $json.trend_score }},\n    \"sentiment\": \"{{ $json.sentiment }}\",\n    \"detected_at\": \"{{ $json.detected_at }}\",\n    \"campaign_topic\": \"{{ $json.campaign_topic }}\"\n  }]\n}",
+        "options": {}
+      },
+      "id": "store-trend-embedding",
+      "name": "Store Trend Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 450]
+    },
+    {
+      "parameters": {
+        "url": "http://publishing-service:8002/notifications/send",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"type\": \"emerging_trend_alert\",\n  \"trend\": {\n    \"topic\": \"{{ $json.topic }}\",\n    \"score\": {{ $json.trend_score }},\n    \"mentions\": {{ $json.mention_count }},\n    \"sentiment\": \"{{ $json.sentiment }}\",\n    \"sources\": {{ $json.sources }}\n  },\n  \"message\": \"🔥 Emerging trend detected: {{ $json.topic }} (Score: {{ $json.trend_score }})\",\n  \"action_items\": [\n    \"Consider creating content around this trend\",\n    \"Monitor for further developments\",\n    \"Engage with trending conversations\"\n  ]\n}",
+        "options": {}
+      },
+      "id": "send-trend-alert",
+      "name": "Send Trend Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trend/manual-check",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-manual",
+      "name": "Webhook - Manual Trend Check",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 600],
+      "webhookId": "manual-trend-check-webhook"
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/trend",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"topics\": {{ $json.body.topics || '[]' }},\n  \"time_range\": \"{{ $json.body.time_range || 'week' }}\",\n  \"min_score\": {{ $json.body.min_score || 0.5 }},\n  \"sources\": {{ $json.body.sources || '[\"reddit\", \"hackernews\", \"web\"]' }}\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "run-trend-agent",
+      "name": "Run Trend Detection Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 600]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Manual trend analysis completed\",\n  \"trends_found\": {{ $json.trends?.length || 0 }},\n  \"top_trends\": {{ $json.trends?.slice(0, 5) || '[]' }},\n  \"analysis_timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "id": "response-manual",
+      "name": "Respond Manual Analysis",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 600]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "schedule-weekly",
+      "name": "Schedule - Weekly Report",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 800]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT t.topic, COUNT(*) as occurrences, AVG(t.score) as avg_score, MAX(t.detected_at) as last_seen FROM trends t WHERE t.detected_at > NOW() - INTERVAL '7 days' GROUP BY t.topic HAVING COUNT(*) >= 2 ORDER BY avg_score DESC, occurrences DESC LIMIT 20",
+        "additionalFields": {}
+      },
+      "id": "get-weekly-trends",
+      "name": "Get Weekly Top Trends",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 800],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/content",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"operation\": \"generate_report\",\n  \"report_type\": \"weekly_trends\",\n  \"data\": {{ $json }},\n  \"format\": \"markdown\",\n  \"include_charts\": true\n}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "generate-report",
+      "name": "Generate Trend Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 800]
+    },
+    {
+      "parameters": {
+        "url": "http://publishing-service:8002/email/send",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"smtp_host\": \"{{ $env.SMTP_HOST }}\",\n  \"smtp_port\": {{ $env.SMTP_PORT }},\n  \"smtp_username\": \"{{ $env.SMTP_USERNAME }}\",\n  \"smtp_password\": \"{{ $env.SMTP_PASSWORD }}\",\n  \"from_email\": \"{{ $env.EMAIL_FROM }}\",\n  \"from_name\": \"Marketing Intelligence\",\n  \"to_list\": [\"{{ $env.ADMIN_EMAIL }}\"],\n  \"subject\": \"Weekly Trend Report - {{ new Date().toLocaleDateString() }}\",\n  \"html_content\": \"{{ $json.report_html }}\",\n  \"attachments\": []\n}",
+        "options": {}
+      },
+      "id": "send-weekly-report",
+      "name": "Send Weekly Trend Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 800]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT topic, score FROM trends WHERE detected_at > NOW() - INTERVAL '7 days' ORDER BY score DESC LIMIT 10",
+        "additionalFields": {}
+      },
+      "id": "get-top-trends",
+      "name": "Get Top Trends",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 800],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5678/webhook/content-generation",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"auto_generate\": true,\n  \"topic\": \"{{ $json.topic }}\",\n  \"content_type\": \"blog_post\",\n  \"urgency\": \"trending\",\n  \"trend_score\": {{ $json.score }}\n}",
+        "options": {}
+      },
+      "id": "trigger-content-generation",
+      "name": "Trigger Content for Trend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 800]
+    }
+  ],
+  "connections": {
+    "Schedule - Daily Trend Analysis": {
+      "main": [[{ "node": "Get Active Campaign Topics", "type": "main", "index": 0 }]]
+    },
+    "Get Active Campaign Topics": {
+      "main": [[{ "node": "Split Topics", "type": "main", "index": 0 }]]
+    },
+    "Split Topics": {
+      "main": [
+        [
+          { "node": "Scrape Reddit Trends", "type": "main", "index": 0 },
+          { "node": "Scrape HackerNews", "type": "main", "index": 0 },
+          { "node": "Search Web for Trends", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Scrape Reddit Trends": {
+      "main": [[{ "node": "Extract Trending Topics", "type": "main", "index": 0 }]]
+    },
+    "Scrape HackerNews": {
+      "main": [[{ "node": "Extract Trending Topics", "type": "main", "index": 0 }]]
+    },
+    "Search Web for Trends": {
+      "main": [
+        [
+          { "node": "Extract Trending Topics", "type": "main", "index": 0 },
+          { "node": "Analyze Trend Sentiment", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Extract Trending Topics": {
+      "main": [[{ "node": "Calculate Trend Scores", "type": "main", "index": 0 }]]
+    },
+    "Analyze Trend Sentiment": {
+      "main": [[{ "node": "Calculate Trend Scores", "type": "main", "index": 0 }]]
+    },
+    "Calculate Trend Scores": {
+      "main": [[{ "node": "If Emerging Trend", "type": "main", "index": 0 }]]
+    },
+    "If Emerging Trend": {
+      "main": [
+        [
+          { "node": "Save Emerging Trend", "type": "main", "index": 0 },
+          { "node": "Store Trend Embedding", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Save Emerging Trend": {
+      "main": [[{ "node": "Send Trend Alert", "type": "main", "index": 0 }]]
+    },
+    "Webhook - Manual Trend Check": {
+      "main": [[{ "node": "Run Trend Detection Agent", "type": "main", "index": 0 }]]
+    },
+    "Run Trend Detection Agent": {
+      "main": [[{ "node": "Respond Manual Analysis", "type": "main", "index": 0 }]]
+    },
+    "Schedule - Weekly Report": {
+      "main": [[{ "node": "Get Weekly Top Trends", "type": "main", "index": 0 }]]
+    },
+    "Get Weekly Top Trends": {
+      "main": [[{ "node": "Generate Trend Report", "type": "main", "index": 0 }]]
+    },
+    "Generate Trend Report": {
+      "main": [
+        [
+          { "node": "Send Weekly Trend Report", "type": "main", "index": 0 },
+          { "node": "Get Top Trends", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Top Trends": {
+      "main": [[{ "node": "Trigger Content for Trend", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 3,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

@@ -1,0 +1,285 @@
+{
+  "name": "Research Pipeline Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "research/start",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-research-start",
+      "name": "Webhook - Start Research",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "research-start-webhook"
+    },
+    {
+      "parameters": {
+        "mode": "multiplex"
+      },
+      "id": "split-topics",
+      "name": "Split Research Topics",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/research",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"query\": \"{{ $json.topic }}\",\n  \"max_results\": 10,\n  \"include_sentiment\": true\n}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "run-research-agent",
+      "name": "Run Research Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://scrapy-service:8003/scrape/competitor",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"competitor_id\": {{ $json.competitor_id }},\n  \"start_url\": \"{{ $json.url }}\",\n  \"max_depth\": 2,\n  \"max_pages\": 50,\n  \"content_types\": [\"blog_post\", \"pricing\", \"product\", \"page\"]\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "scrape-competitor",
+      "name": "Scrape Competitor Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 450]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/sentiment-analysis",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"text\": \"{{ $json.content }}\",\n  \"batch\": false\n}",
+        "options": {}
+      },
+      "id": "analyze-sentiment",
+      "name": "Analyze Sentiment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/extract-entities",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"text\": \"{{ $json.content }}\"\n}",
+        "options": {}
+      },
+      "id": "extract-entities",
+      "name": "Extract Named Entities",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 450]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/extract-topics",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"text\": \"{{ $json.content }}\"\n}",
+        "options": {}
+      },
+      "id": "extract-topics",
+      "name": "Extract Topics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all analysis results\nconst items = $input.all();\nconst researchData = items[0].json;\nconst sentimentData = items[1]?.json || {};\nconst entitiesData = items[2]?.json || {};\nconst topicsData = items[3]?.json || {};\n\nconst aggregated = {\n  campaign_id: researchData.campaign_id,\n  topic: researchData.topic,\n  research_results: researchData.results,\n  sentiment: {\n    label: sentimentData.sentiment,\n    confidence: sentimentData.confidence\n  },\n  entities: entitiesData.entities || {},\n  topics: topicsData.topics || [],\n  metadata: {\n    researched_at: new Date().toISOString(),\n    sources: researchData.sources || [],\n    total_results: researchData.results?.length || 0\n  }\n};\n\nreturn aggregated;"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Research Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "research_results",
+        "columns": "campaign_id, query, source, results, created_at",
+        "additionalFields": {}
+      },
+      "id": "store-research",
+      "name": "Store Research Results",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "content_analysis",
+        "columns": "content_id, analysis_type, results, sentiment_score, topics, entities, created_at",
+        "additionalFields": {}
+      },
+      "id": "store-analysis",
+      "name": "Store Content Analysis",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 550],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/storage/vector-embeddings/add",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"collection_name\": \"research_content\",\n  \"texts\": [\"{{ $json.content }}\"],\n  \"metadatas\": [{\n    \"campaign_id\": {{ $json.campaign_id }},\n    \"topic\": \"{{ $json.topic }}\",\n    \"sentiment\": \"{{ $json.sentiment.label }}\",\n    \"source\": \"{{ $json.source }}\",\n    \"created_at\": \"{{ $json.metadata.researched_at }}\"\n  }]\n}",
+        "options": {}
+      },
+      "id": "store-embeddings",
+      "name": "Store Vector Embeddings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1450, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge All Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Research pipeline completed\",\n  \"campaign_id\": {{ $json.campaign_id }},\n  \"topics_researched\": {{ $json.topics_count }},\n  \"total_results\": {{ $json.total_results }},\n  \"sentiment_analysis_completed\": true,\n  \"entities_extracted\": true,\n  \"topics_extracted\": true,\n  \"embeddings_stored\": true,\n  \"results_summary\": {\n    \"positive_sentiment\": {{ $json.positive_count }},\n    \"negative_sentiment\": {{ $json.negative_count }},\n    \"neutral_sentiment\": {{ $json.neutral_count }},\n    \"top_entities\": {{ $json.top_entities }},\n    \"trending_topics\": {{ $json.trending_topics }}\n  }\n}",
+        "options": {}
+      },
+      "id": "response-complete",
+      "name": "Respond Research Complete",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1850, 400]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/trend",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"topics\": {{ $json.all_topics }},\n  \"time_range\": \"week\",\n  \"min_score\": 0.5\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "detect-trends",
+      "name": "Detect Trending Topics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1450, 600]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "trends",
+        "columns": "topic, score, source, metadata, detected_at",
+        "mode": "insert",
+        "additionalFields": {}
+      },
+      "id": "store-trends",
+      "name": "Store Detected Trends",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1650, 600],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Start Research": {
+      "main": [[{ "node": "Split Research Topics", "type": "main", "index": 0 }]]
+    },
+    "Split Research Topics": {
+      "main": [
+        [
+          { "node": "Run Research Agent", "type": "main", "index": 0 },
+          { "node": "Scrape Competitor Content", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Run Research Agent": {
+      "main": [
+        [
+          { "node": "Analyze Sentiment", "type": "main", "index": 0 },
+          { "node": "Extract Named Entities", "type": "main", "index": 0 },
+          { "node": "Extract Topics", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Analyze Sentiment": {
+      "main": [[{ "node": "Aggregate Research Results", "type": "main", "index": 0 }]]
+    },
+    "Extract Named Entities": {
+      "main": [[{ "node": "Aggregate Research Results", "type": "main", "index": 0 }]]
+    },
+    "Extract Topics": {
+      "main": [[{ "node": "Aggregate Research Results", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Research Results": {
+      "main": [
+        [
+          { "node": "Store Research Results", "type": "main", "index": 0 },
+          { "node": "Store Content Analysis", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Store Research Results": {
+      "main": [[{ "node": "Store Vector Embeddings", "type": "main", "index": 0 }]]
+    },
+    "Store Content Analysis": {
+      "main": [[{ "node": "Merge All Results", "type": "main", "index": 0 }]]
+    },
+    "Store Vector Embeddings": {
+      "main": [[{ "node": "Merge All Results", "type": "main", "index": 1 }]]
+    },
+    "Merge All Results": {
+      "main": [
+        [
+          { "node": "Detect Trending Topics", "type": "main", "index": 0 },
+          { "node": "Respond Research Complete", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Detect Trending Topics": {
+      "main": [[{ "node": "Store Detected Trends", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

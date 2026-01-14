@@ -1,0 +1,384 @@
+{
+  "name": "Publishing Pipeline Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "publishing-pipeline",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-publish",
+      "name": "Webhook - Publish Content",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "publishing-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cd.*, c.name as campaign_name, c.branding_json FROM content_drafts cd JOIN campaigns c ON cd.campaign_id = c.id WHERE cd.id = {{ $json.body.draft_id }}",
+        "additionalFields": {}
+      },
+      "id": "get-content",
+      "name": "Get Content Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM media_assets WHERE draft_id = {{ $json.id }} AND type IN ('image', 'video') ORDER BY created_at DESC",
+        "additionalFields": {}
+      },
+      "id": "get-media",
+      "name": "Get Media Assets",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-schedule",
+              "leftValue": "={{ $('Webhook - Publish Content').item.json.body.schedule_time }}",
+              "rightValue": "now",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-scheduled",
+      "name": "If Scheduled Publishing",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "scheduled_posts",
+        "columns": "draft_id, scheduled_time, channels, status, created_at",
+        "additionalFields": {}
+      },
+      "id": "schedule-post",
+      "name": "Schedule Post",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 200],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Post scheduled successfully\",\n  \"draft_id\": {{ $json.draft_id }},\n  \"scheduled_time\": \"{{ $('Webhook - Publish Content').item.json.body.schedule_time }}\",\n  \"channels\": {{ $('Webhook - Publish Content').item.json.body.channels }},\n  \"status\": \"scheduled\"\n}",
+        "options": {}
+      },
+      "id": "response-scheduled",
+      "name": "Respond Scheduled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "mode": "multiplex"
+      },
+      "id": "split-channels",
+      "name": "Split Publishing Channels",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-linkedin",
+              "leftValue": "={{ $json.channel }}",
+              "rightValue": "linkedin",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-channel",
+      "name": "Route to Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "url": "http://publishing-service:8002/linkedin/publish",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"access_token\": \"{{ $env.LINKEDIN_ACCESS_TOKEN }}\",\n  \"text\": \"{{ $('Get Content Draft').item.json.content }}\",\n  \"title\": \"{{ $('Get Content Draft').item.json.title }}\",\n  \"media_urls\": {{ $('Get Media Assets').all().map(m => m.json.url) }},\n  \"visibility\": \"PUBLIC\"\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "publish-linkedin",
+      "name": "Publish to LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "url": "http://publishing-service:8002/wordpress/publish",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"wp_url\": \"{{ $env.WORDPRESS_URL }}\",\n  \"wp_username\": \"{{ $env.WORDPRESS_USERNAME }}\",\n  \"wp_password\": \"{{ $env.WORDPRESS_PASSWORD }}\",\n  \"title\": \"{{ $('Get Content Draft').item.json.title }}\",\n  \"content\": \"{{ $('Get Content Draft').item.json.content }}\",\n  \"categories\": {{ $('Get Content Draft').item.json.categories || '[]' }},\n  \"tags\": {{ $('Get Content Draft').item.json.meta_keywords?.split(',') || '[]' }},\n  \"featured_image_url\": \"{{ $('Get Media Assets').all()[0]?.json.url }}\",\n  \"status\": \"publish\"\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "publish-wordpress",
+      "name": "Publish to WordPress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "url": "http://publishing-service:8002/email/send",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"smtp_host\": \"{{ $env.SMTP_HOST }}\",\n  \"smtp_port\": {{ $env.SMTP_PORT }},\n  \"smtp_username\": \"{{ $env.SMTP_USERNAME }}\",\n  \"smtp_password\": \"{{ $env.SMTP_PASSWORD }}\",\n  \"from_email\": \"{{ $env.EMAIL_FROM }}\",\n  \"from_name\": \"{{ $('Get Content Draft').item.json.branding_json.company_name }}\",\n  \"to_list\": {{ $('Webhook - Publish Content').item.json.body.email_recipients || '[]' }},\n  \"subject\": \"{{ $('Get Content Draft').item.json.title }}\",\n  \"html_content\": \"{{ $('Get Content Draft').item.json.content }}\",\n  \"inline_images\": {{ $('Get Media Assets').all().map(m => ({url: m.json.url, cid: m.json.id})) }}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "publish-email",
+      "name": "Send Email Newsletter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 550]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format content for channel-specific requirements\nconst content = $('Get Content Draft').item.json;\nconst channel = $json.channel;\nconst media = $('Get Media Assets').all();\n\nlet formattedContent = content.content;\nlet formattedTitle = content.title;\n\nswitch(channel) {\n  case 'linkedin':\n    // LinkedIn: Max 3000 chars, hashtags at end\n    if (formattedContent.length > 3000) {\n      formattedContent = formattedContent.substring(0, 2950) + '... [Read more]';\n    }\n    // Add hashtags\n    const hashtags = content.meta_keywords?.split(',').map(k => `#${k.trim().replace(/\\s+/g, '')}`).join(' ') || '';\n    formattedContent += `\\n\\n${hashtags}`;\n    break;\n    \n  case 'wordpress':\n    // WordPress: Add featured image, format HTML\n    if (media.length > 0) {\n      formattedContent = `<img src=\"${media[0].json.url}\" alt=\"${formattedTitle}\" class=\"featured-image\" />\\n\\n${formattedContent}`;\n    }\n    // Add meta description\n    if (content.meta_description) {\n      formattedContent = `<p class=\"meta-description\">${content.meta_description}</p>\\n\\n${formattedContent}`;\n    }\n    break;\n    \n  case 'email':\n    // Email: Full HTML template with inline styles\n    formattedContent = `\n      <!DOCTYPE html>\n      <html>\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>${formattedTitle}</title>\n      </head>\n      <body style=\"font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px;\">\n        <h1 style=\"color: #333;\">${formattedTitle}</h1>\n        ${media.length > 0 ? `<img src=\"cid:${media[0].json.id}\" alt=\"${formattedTitle}\" style=\"max-width: 100%; height: auto; margin: 20px 0;\" />` : ''}\n        <div style=\"color: #555;\">${formattedContent}</div>\n        <hr style=\"margin: 30px 0; border: none; border-top: 1px solid #ddd;\">\n        <p style=\"color: #999; font-size: 12px; text-align: center;\">Unsubscribe | View in browser</p>\n      </body>\n      </html>\n    `;\n    break;\n}\n\nreturn {\n  channel: channel,\n  formatted_title: formattedTitle,\n  formatted_content: formattedContent,\n  media_count: media.length\n};"
+      },
+      "id": "format-content",
+      "name": "Format Content for Channel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 550]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "published_content",
+        "columns": "draft_id, channel, url, published_at, metadata_json",
+        "returnFields": "id, draft_id, channel, url",
+        "additionalFields": {}
+      },
+      "id": "save-publication",
+      "name": "Save Publication Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1450, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "content_drafts",
+        "updateKey": "id",
+        "columns": "status",
+        "additionalFields": {
+          "additionalFields": [
+            {
+              "name": "published_at",
+              "value": "=NOW()"
+            }
+          ]
+        }
+      },
+      "id": "update-draft-status",
+      "name": "Update Draft to Published",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1450, 550],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge Publishing Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5678/webhook/engagement-tracking",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"draft_id\": {{ $('Get Content Draft').item.json.id }},\n  \"publications\": {{ $json }},\n  \"action\": \"start_tracking\"\n}",
+        "options": {}
+      },
+      "id": "start-tracking",
+      "name": "Start Engagement Tracking",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1850, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Content published successfully\",\n  \"draft_id\": {{ $('Get Content Draft').item.json.id }},\n  \"title\": \"{{ $('Get Content Draft').item.json.title }}\",\n  \"channels_published\": {{ $json.length }},\n  \"publications\": {{ $json }},\n  \"tracking_enabled\": true,\n  \"published_at\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "id": "response-published",
+      "name": "Respond Published",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2050, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO engagement_metrics (content_id, channel, views, clicks, shares, conversions, tracked_at) VALUES {{ $json.publications.map(p => `(${p.id}, '${p.channel}', 0, 0, 0, 0, NOW())`).join(',') }} RETURNING *",
+        "additionalFields": {}
+      },
+      "id": "init-metrics",
+      "name": "Initialize Engagement Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1850, 550],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Publish Content": {
+      "main": [
+        [
+          { "node": "Get Content Draft", "type": "main", "index": 0 },
+          { "node": "Get Media Assets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Content Draft": {
+      "main": [[{ "node": "If Scheduled Publishing", "type": "main", "index": 0 }]]
+    },
+    "If Scheduled Publishing": {
+      "main": [
+        [{ "node": "Schedule Post", "type": "main", "index": 0 }],
+        [{ "node": "Split Publishing Channels", "type": "main", "index": 0 }]
+      ]
+    },
+    "Schedule Post": {
+      "main": [[{ "node": "Respond Scheduled", "type": "main", "index": 0 }]]
+    },
+    "Split Publishing Channels": {
+      "main": [
+        [
+          { "node": "Route to Channel", "type": "main", "index": 0 },
+          { "node": "Format Content for Channel", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Route to Channel": {
+      "main": [
+        [{ "node": "Publish to LinkedIn", "type": "main", "index": 0 }],
+        [{ "node": "Publish to WordPress", "type": "main", "index": 0 }],
+        [{ "node": "Send Email Newsletter", "type": "main", "index": 0 }]
+      ]
+    },
+    "Publish to LinkedIn": {
+      "main": [[{ "node": "Save Publication Record", "type": "main", "index": 0 }]]
+    },
+    "Publish to WordPress": {
+      "main": [[{ "node": "Save Publication Record", "type": "main", "index": 0 }]]
+    },
+    "Send Email Newsletter": {
+      "main": [[{ "node": "Save Publication Record", "type": "main", "index": 0 }]]
+    },
+    "Save Publication Record": {
+      "main": [
+        [
+          { "node": "Update Draft to Published", "type": "main", "index": 0 },
+          { "node": "Merge Publishing Results", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Merge Publishing Results": {
+      "main": [
+        [
+          { "node": "Start Engagement Tracking", "type": "main", "index": 0 },
+          { "node": "Initialize Engagement Metrics", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Start Engagement Tracking": {
+      "main": [[{ "node": "Respond Published", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

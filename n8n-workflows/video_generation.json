@@ -1,0 +1,337 @@
+{
+  "name": "Video Generation Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "video/generate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-video-gen",
+      "name": "Webhook - Generate Video",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "video-generate-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cd.*, c.branding_json FROM content_drafts cd JOIN campaigns c ON cd.campaign_id = c.id WHERE cd.id = {{ $json.body.draft_id }}",
+        "additionalFields": {}
+      },
+      "id": "get-content",
+      "name": "Get Content Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/chains/video-script-builder",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"content\": \"{{ $json.content }}\",\n  \"platform\": \"{{ $('Webhook - Generate Video').item.json.body.platform || 'linkedin' }}\",\n  \"duration\": {{ $('Webhook - Generate Video').item.json.body.duration || 30 }},\n  \"narrative_arc\": {{ $('Webhook - Generate Video').item.json.body.narrative_arc || '[\"hook\", \"context\", \"content\", \"cta\"]' }}\n}",
+        "options": {}
+      },
+      "id": "build-script",
+      "name": "Build Video Script",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split scenes for parallel processing\nconst script = $input.item.json;\nconst scenes = script.scenes || [];\n\nreturn scenes.map((scene, index) => ({\n  json: {\n    scene_number: index + 1,\n    ...scene,\n    total_scenes: scenes.length,\n    draft_id: $('Get Content Draft').item.json.id,\n    provider: $('Webhook - Generate Video').item.json.body.provider || 'runway'\n  }\n}));"
+      },
+      "id": "split-scenes",
+      "name": "Split into Scenes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-runway",
+              "leftValue": "={{ $json.provider }}",
+              "rightValue": "runway",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-runway",
+      "name": "If Runway Provider",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/video",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"provider\": \"runway\",\n  \"prompt\": \"{{ $json.prompt }}\",\n  \"duration\": {{ $json.duration }},\n  \"aspect_ratio\": \"{{ $('Webhook - Generate Video').item.json.body.aspect_ratio || '16:9' }}\",\n  \"motion\": {{ $('Webhook - Generate Video').item.json.body.motion || 5 }}\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "generate-runway",
+      "name": "Generate with Runway ML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/video",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"provider\": \"pika\",\n  \"prompt\": \"{{ $json.prompt }}\",\n  \"duration\": {{ $json.duration }},\n  \"fps\": {{ $('Webhook - Generate Video').item.json.body.fps || 24 }},\n  \"seed\": {{ $('Webhook - Generate Video').item.json.body.seed || -1 }}\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "generate-pika",
+      "name": "Generate with Pika",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.video_url }}",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-clip",
+      "name": "Download Video Clip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "id": "collect-clips",
+      "name": "Collect All Clips",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare FFmpeg command to stitch clips together\nconst clips = $input.all();\nconst clipPaths = clips.map((clip, i) => `/tmp/scene_${i}.mp4`);\n\n// In production, this would invoke FFmpeg\nconst ffmpegCommand = {\n  operation: 'concat',\n  inputs: clipPaths,\n  output: `/tmp/final_video_${Date.now()}.mp4`,\n  options: {\n    video_codec: 'libx264',\n    audio_codec: 'aac',\n    preset: 'medium',\n    crf: 23\n  }\n};\n\nreturn {\n  json: {\n    draft_id: clips[0].json.draft_id,\n    ffmpeg_command: ffmpegCommand,\n    total_clips: clips.length,\n    total_duration: clips.reduce((sum, clip) => sum + (clip.json.duration || 0), 0)\n  }\n};"
+      },
+      "id": "prepare-ffmpeg",
+      "name": "Prepare FFmpeg Stitching",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/ffmpeg",
+        "method": "POST",
+        "bodyParametersJson": "={{ $json.ffmpeg_command }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "stitch-clips",
+      "name": "Stitch Clips with FFmpeg",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/ffmpeg/add-captions",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"video_path\": \"{{ $json.output_path }}\",\n  \"captions\": {{ $('Build Video Script').item.json.voiceover_script }},\n  \"font_size\": 24,\n  \"font_color\": \"white\",\n  \"background_color\": \"rgba(0,0,0,0.7)\",\n  \"position\": \"bottom\"\n}",
+        "options": {}
+      },
+      "id": "add-captions",
+      "name": "Add Captions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 450]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/ffmpeg/add-audio",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"video_path\": \"{{ $json.output_path }}\",\n  \"audio_url\": \"{{ $('Webhook - Generate Video').item.json.body.background_music_url }}\",\n  \"volume\": {{ $('Webhook - Generate Video').item.json.body.music_volume || 0.3 }}\n}",
+        "options": {}
+      },
+      "id": "add-music",
+      "name": "Add Background Music",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 600]
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/tools/ffmpeg/add-intro-outro",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"video_path\": \"{{ $json.output_path }}\",\n  \"intro_template\": \"brand_intro\",\n  \"outro_template\": \"brand_outro\",\n  \"brand_logo\": \"{{ $('Get Content Draft').item.json.branding_json.logo_url }}\",\n  \"brand_colors\": {{ $('Get Content Draft').item.json.branding_json.primary_color ? `[\"${$('Get Content Draft').item.json.branding_json.primary_color}\"]` : '[]' }}\n}",
+        "options": {}
+      },
+      "id": "add-intro-outro",
+      "name": "Add Intro/Outro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2250, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create media asset metadata\nconst filename = `video_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;\nconst filePath = `/app/media_assets/${filename}`;\n\nconst metadata = {\n  draft_id: $('Get Content Draft').item.json.id,\n  type: 'video',\n  file_path: filePath,\n  url: `http://localhost:8000/media/${filename}`,\n  prompt: JSON.stringify($('Build Video Script').item.json.scenes),\n  api_provider: $('Webhook - Generate Video').item.json.body.provider || 'runway',\n  metadata_json: {\n    dimensions: {\n      width: 1920,\n      height: 1080\n    },\n    duration: $('Prepare FFmpeg Stitching').item.json.total_duration,\n    format: 'mp4',\n    fps: $('Webhook - Generate Video').item.json.body.fps || 24,\n    size_bytes: 0, // Will be updated after file save\n    prompt_params: {\n      platform: $('Webhook - Generate Video').item.json.body.platform || 'linkedin',\n      aspect_ratio: $('Webhook - Generate Video').item.json.body.aspect_ratio || '16:9',\n      total_scenes: $('Prepare FFmpeg Stitching').item.json.total_clips\n    },\n    processing: {\n      captions_added: true,\n      music_added: !!$('Webhook - Generate Video').item.json.body.background_music_url,\n      intro_outro_added: true\n    },\n    generated_at: new Date().toISOString()\n  }\n};\n\nreturn metadata;"
+      },
+      "id": "prepare-media-record",
+      "name": "Prepare Media Asset Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 400]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "media_assets",
+        "columns": "draft_id, type, file_path, url, prompt, api_provider, metadata_json, created_at",
+        "returnFields": "id, draft_id, url, type",
+        "additionalFields": {}
+      },
+      "id": "save-media",
+      "name": "Save Media Asset",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2650, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5678/webhook/content-review",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"draft_id\": {{ $json.draft_id }},\n  \"media_asset_id\": {{ $json.id }},\n  \"action\": \"video_ready_for_review\",\n  \"media_url\": \"{{ $json.url }}\",\n  \"media_type\": \"{{ $json.type }}\",\n  \"dashboard_url\": \"http://localhost:8501/media_review?asset_id={{ $json.id }}\"\n}",
+        "options": {}
+      },
+      "id": "notify-review",
+      "name": "Notify Review Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2850, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Video generated successfully\",\n  \"asset_id\": {{ $json.id }},\n  \"draft_id\": {{ $json.draft_id }},\n  \"video_url\": \"{{ $json.url }}\",\n  \"provider\": \"{{ $('Webhook - Generate Video').item.json.body.provider || 'runway' }}\",\n  \"duration_seconds\": {{ $('Prepare FFmpeg Stitching').item.json.total_duration }},\n  \"total_scenes\": {{ $('Prepare FFmpeg Stitching').item.json.total_clips }},\n  \"processing_applied\": {\n    \"captions\": true,\n    \"background_music\": {{ !!$('Webhook - Generate Video').item.json.body.background_music_url }},\n    \"intro_outro\": true\n  },\n  \"status\": \"ready_for_review\",\n  \"review_url\": \"http://localhost:8501/media_review?asset_id={{ $json.id }}\"\n}",
+        "options": {}
+      },
+      "id": "response-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3050, 400]
+    }
+  ],
+  "connections": {
+    "Webhook - Generate Video": {
+      "main": [[{ "node": "Get Content Draft", "type": "main", "index": 0 }]]
+    },
+    "Get Content Draft": {
+      "main": [[{ "node": "Build Video Script", "type": "main", "index": 0 }]]
+    },
+    "Build Video Script": {
+      "main": [[{ "node": "Split into Scenes", "type": "main", "index": 0 }]]
+    },
+    "Split into Scenes": {
+      "main": [[{ "node": "If Runway Provider", "type": "main", "index": 0 }]]
+    },
+    "If Runway Provider": {
+      "main": [
+        [{ "node": "Generate with Runway ML", "type": "main", "index": 0 }],
+        [{ "node": "Generate with Pika", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate with Runway ML": {
+      "main": [[{ "node": "Download Video Clip", "type": "main", "index": 0 }]]
+    },
+    "Generate with Pika": {
+      "main": [[{ "node": "Download Video Clip", "type": "main", "index": 0 }]]
+    },
+    "Download Video Clip": {
+      "main": [[{ "node": "Collect All Clips", "type": "main", "index": 0 }]]
+    },
+    "Collect All Clips": {
+      "main": [[{ "node": "Prepare FFmpeg Stitching", "type": "main", "index": 0 }]]
+    },
+    "Prepare FFmpeg Stitching": {
+      "main": [[{ "node": "Stitch Clips with FFmpeg", "type": "main", "index": 0 }]]
+    },
+    "Stitch Clips with FFmpeg": {
+      "main": [
+        [
+          { "node": "Add Captions", "type": "main", "index": 0 },
+          { "node": "Add Background Music", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Add Captions": {
+      "main": [[{ "node": "Add Intro/Outro", "type": "main", "index": 0 }]]
+    },
+    "Add Background Music": {
+      "main": [[{ "node": "Add Intro/Outro", "type": "main", "index": 0 }]]
+    },
+    "Add Intro/Outro": {
+      "main": [[{ "node": "Prepare Media Asset Record", "type": "main", "index": 0 }]]
+    },
+    "Prepare Media Asset Record": {
+      "main": [[{ "node": "Save Media Asset", "type": "main", "index": 0 }]]
+    },
+    "Save Media Asset": {
+      "main": [[{ "node": "Notify Review Dashboard", "type": "main", "index": 0 }]]
+    },
+    "Notify Review Dashboard": {
+      "main": [[{ "node": "Respond Success", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

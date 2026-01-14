@@ -1,0 +1,451 @@
+{
+  "name": "Content Review Loop Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "content-review",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-review-notification",
+      "name": "Webhook - Review Notification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "content-review-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cd.*, c.name as campaign_name, c.user_id FROM content_drafts cd JOIN campaigns c ON cd.campaign_id = c.id WHERE cd.id = {{ $json.body.draft_id }}",
+        "additionalFields": {}
+      },
+      "id": "get-draft",
+      "name": "Get Content Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM media_assets WHERE draft_id = {{ $json.id }} ORDER BY created_at DESC",
+        "additionalFields": {}
+      },
+      "id": "get-media",
+      "name": "Get Associated Media",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "content_drafts",
+        "updateKey": "id",
+        "columns": "status",
+        "additionalFields": {
+          "additionalFields": [
+            {
+              "name": "updated_at",
+              "value": "=NOW()"
+            }
+          ]
+        }
+      },
+      "id": "update-status-review",
+      "name": "Update Status to In Review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Content marked for review\",\n  \"draft_id\": {{ $json.id }},\n  \"status\": \"in_review\",\n  \"dashboard_url\": \"{{ $('Webhook - Review Notification').item.json.body.dashboard_url }}\"\n}",
+        "options": {}
+      },
+      "id": "response-queued",
+      "name": "Respond Review Queued",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "review/feedback",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-feedback",
+      "name": "Webhook - Review Feedback",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 600],
+      "webhookId": "review-feedback-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-approved",
+              "leftValue": "={{ $json.body.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-approved",
+      "name": "If Approved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [450, 600]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "content_drafts",
+        "updateKey": "id",
+        "columns": "status",
+        "additionalFields": {
+          "additionalFields": [
+            {
+              "name": "approved_at",
+              "value": "=NOW()"
+            },
+            {
+              "name": "approved_by",
+              "value": "={{ $json.body.reviewer_id }}"
+            }
+          ]
+        }
+      },
+      "id": "approve-content",
+      "name": "Approve Content",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [650, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5678/webhook/publishing-pipeline",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"draft_id\": {{ $json.body.draft_id }},\n  \"channels\": {{ $json.body.publish_channels || '[\"linkedin\"]' }},\n  \"schedule_time\": \"{{ $json.body.schedule_time || 'now' }}\"\n}",
+        "options": {}
+      },
+      "id": "trigger-publishing",
+      "name": "Trigger Publishing Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 500]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "review_feedback",
+        "columns": "draft_id, reviewer, feedback_text, rating, suggested_edits, created_at",
+        "additionalFields": {}
+      },
+      "id": "save-feedback-approve",
+      "name": "Save Approval Feedback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 650],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Content approved and scheduled for publishing\",\n  \"draft_id\": {{ $json.body.draft_id }},\n  \"status\": \"approved\",\n  \"publishing_triggered\": true,\n  \"channels\": {{ $json.body.publish_channels || '[\"linkedin\"]' }}\n}",
+        "options": {}
+      },
+      "id": "response-approved",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 500]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "review_feedback",
+        "columns": "draft_id, reviewer, feedback_text, rating, suggested_edits, created_at",
+        "additionalFields": {}
+      },
+      "id": "save-feedback-revise",
+      "name": "Save Revision Feedback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [650, 700],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://langchain-service:8001/agents/content",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"operation\": \"revise\",\n  \"content\": \"{{ $json.original_content }}\",\n  \"feedback\": \"{{ $json.body.feedback_text }}\",\n  \"suggested_edits\": {{ $json.body.suggested_edits || '[]' }},\n  \"apply_targeted_edits\": true\n}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "apply-revisions",
+      "name": "Apply LLM Revisions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 700]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(MAX(version_number), 0) + 1 as next_version FROM content_versions WHERE draft_id = {{ $json.body.draft_id }}",
+        "additionalFields": {}
+      },
+      "id": "get-next-version",
+      "name": "Get Next Version Number",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 700],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "content_versions",
+        "columns": "draft_id, version_number, content, created_by, created_at",
+        "returnFields": "id, draft_id, version_number",
+        "additionalFields": {}
+      },
+      "id": "create-new-version",
+      "name": "Create New Version",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 700],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "content_drafts",
+        "updateKey": "id",
+        "columns": "content, status",
+        "additionalFields": {
+          "additionalFields": [
+            {
+              "name": "updated_at",
+              "value": "=NOW()"
+            }
+          ]
+        }
+      },
+      "id": "update-draft-content",
+      "name": "Update Draft with Revisions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1450, 700],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Revisions applied, new version created\",\n  \"draft_id\": {{ $json.draft_id }},\n  \"version_number\": {{ $json.version_number }},\n  \"status\": \"in_review\",\n  \"changes_applied\": true,\n  \"review_url\": \"http://localhost:8501/content_review?draft_id={{ $json.draft_id }}&version={{ $json.version_number }}\"\n}",
+        "options": {}
+      },
+      "id": "response-revised",
+      "name": "Respond Revisions Applied",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1650, 700]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "content_drafts",
+        "updateKey": "id",
+        "columns": "status",
+        "additionalFields": {
+          "additionalFields": [
+            {
+              "name": "rejected_at",
+              "value": "=NOW()"
+            },
+            {
+              "name": "rejected_by",
+              "value": "={{ $json.body.reviewer_id }}"
+            }
+          ]
+        }
+      },
+      "id": "reject-content",
+      "name": "Reject Content",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [650, 900],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "review_feedback",
+        "columns": "draft_id, reviewer, feedback_text, rating, created_at",
+        "additionalFields": {}
+      },
+      "id": "save-feedback-reject",
+      "name": "Save Rejection Feedback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 900],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Content rejected\",\n  \"draft_id\": {{ $json.body.draft_id }},\n  \"status\": \"rejected\",\n  \"reason\": \"{{ $json.body.feedback_text }}\"\n}",
+        "options": {}
+      },
+      "id": "response-rejected",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 900]
+    }
+  ],
+  "connections": {
+    "Webhook - Review Notification": {
+      "main": [
+        [
+          { "node": "Get Content Draft", "type": "main", "index": 0 },
+          { "node": "Get Associated Media", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Content Draft": {
+      "main": [[{ "node": "Update Status to In Review", "type": "main", "index": 0 }]]
+    },
+    "Update Status to In Review": {
+      "main": [[{ "node": "Respond Review Queued", "type": "main", "index": 0 }]]
+    },
+    "Webhook - Review Feedback": {
+      "main": [[{ "node": "If Approved", "type": "main", "index": 0 }]]
+    },
+    "If Approved": {
+      "main": [
+        [{ "node": "Approve Content", "type": "main", "index": 0 }],
+        [{ "node": "Save Revision Feedback", "type": "main", "index": 0 }],
+        [{ "node": "Reject Content", "type": "main", "index": 0 }]
+      ]
+    },
+    "Approve Content": {
+      "main": [
+        [
+          { "node": "Trigger Publishing Workflow", "type": "main", "index": 0 },
+          { "node": "Save Approval Feedback", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Trigger Publishing Workflow": {
+      "main": [[{ "node": "Respond Approved", "type": "main", "index": 0 }]]
+    },
+    "Save Revision Feedback": {
+      "main": [[{ "node": "Apply LLM Revisions", "type": "main", "index": 0 }]]
+    },
+    "Apply LLM Revisions": {
+      "main": [[{ "node": "Get Next Version Number", "type": "main", "index": 0 }]]
+    },
+    "Get Next Version Number": {
+      "main": [[{ "node": "Create New Version", "type": "main", "index": 0 }]]
+    },
+    "Create New Version": {
+      "main": [[{ "node": "Update Draft with Revisions", "type": "main", "index": 0 }]]
+    },
+    "Update Draft with Revisions": {
+      "main": [[{ "node": "Respond Revisions Applied", "type": "main", "index": 0 }]]
+    },
+    "Reject Content": {
+      "main": [[{ "node": "Save Rejection Feedback", "type": "main", "index": 0 }]]
+    },
+    "Save Rejection Feedback": {
+      "main": [[{ "node": "Respond Rejected", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 2,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

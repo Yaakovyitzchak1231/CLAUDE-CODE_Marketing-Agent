@@ -1,0 +1,442 @@
+{
+  "name": "Engagement Tracking Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "engagement-tracking",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-tracking",
+      "name": "Webhook - Track Engagement",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "engagement-tracking-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-action",
+              "leftValue": "={{ $json.body.action }}",
+              "rightValue": "start_tracking",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-action",
+      "name": "Route by Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT pc.*, cd.title, cd.campaign_id FROM published_content pc JOIN content_drafts cd ON pc.draft_id = cd.id WHERE pc.draft_id = {{ $('Webhook - Track Engagement').item.json.body.draft_id }}",
+        "additionalFields": {}
+      },
+      "id": "get-publications",
+      "name": "Get Published Content",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [650, 200],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "multiplex"
+      },
+      "id": "split-publications",
+      "name": "Split Publications",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-linkedin-channel",
+              "leftValue": "={{ $json.channel }}",
+              "rightValue": "linkedin",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-channel",
+      "name": "If Channel Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "url": "http://publishing-service:8002/linkedin/stats",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"access_token\": \"{{ $env.LINKEDIN_ACCESS_TOKEN }}\",\n  \"post_url\": \"{{ $json.url }}\"\n}",
+        "options": {}
+      },
+      "id": "fetch-linkedin-stats",
+      "name": "Fetch LinkedIn Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 100]
+    },
+    {
+      "parameters": {
+        "url": "http://publishing-service:8002/wordpress/stats",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"wp_url\": \"{{ $env.WORDPRESS_URL }}\",\n  \"wp_username\": \"{{ $env.WORDPRESS_USERNAME }}\",\n  \"wp_password\": \"{{ $env.WORDPRESS_PASSWORD }}\",\n  \"post_id\": \"{{ $json.metadata_json.post_id }}\"\n}",
+        "options": {}
+      },
+      "id": "fetch-wordpress-stats",
+      "name": "Fetch WordPress Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "url": "http://matomo:9000/index.php",
+        "method": "GET",
+        "queryParametersJson": "={\n  \"module\": \"API\",\n  \"method\": \"Actions.getPageUrl\",\n  \"pageUrl\": \"{{ $json.url }}\",\n  \"idSite\": {{ $env.MATOMO_SITE_ID }},\n  \"period\": \"day\",\n  \"date\": \"today\",\n  \"format\": \"JSON\",\n  \"token_auth\": \"{{ $env.MATOMO_AUTH_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "fetch-matomo-stats",
+      "name": "Fetch Matomo Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate engagement metrics from different sources\nconst publication = $('Split Publications').item.json;\nconst channel = publication.channel;\n\nlet metrics = {\n  content_id: publication.id,\n  channel: channel,\n  views: 0,\n  clicks: 0,\n  shares: 0,\n  conversions: 0,\n  engagement_rate: 0,\n  tracked_at: new Date().toISOString()\n};\n\nif (channel === 'linkedin') {\n  const linkedin = $json;\n  metrics.views = linkedin.impressions || 0;\n  metrics.clicks = linkedin.clicks || 0;\n  metrics.shares = linkedin.shares || 0;\n  metrics.engagement_rate = linkedin.engagement_rate || 0;\n} else if (channel === 'wordpress') {\n  const wp = $json;\n  metrics.views = wp.views || 0;\n  metrics.clicks = wp.comments || 0;  // Comments as engagement\n} else {\n  // Use Matomo for general tracking\n  const matomo = $json;\n  metrics.views = matomo.nb_visits || 0;\n  metrics.clicks = matomo.nb_actions || 0;\n}\n\n// Calculate engagement rate\nif (metrics.views > 0) {\n  metrics.engagement_rate = ((metrics.clicks + metrics.shares) / metrics.views * 100).toFixed(2);\n}\n\nreturn metrics;"
+      },
+      "id": "aggregate-metrics",
+      "name": "Aggregate Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO engagement_metrics (content_id, channel, views, clicks, shares, conversions, engagement_rate, tracked_at) VALUES ({{ $json.content_id }}, '{{ $json.channel }}', {{ $json.views }}, {{ $json.clicks }}, {{ $json.shares }}, {{ $json.conversions }}, {{ $json.engagement_rate }}, '{{ $json.tracked_at }}') ON CONFLICT (content_id, channel, DATE(tracked_at)) DO UPDATE SET views = EXCLUDED.views, clicks = EXCLUDED.clicks, shares = EXCLUDED.shares, conversions = EXCLUDED.conversions, engagement_rate = EXCLUDED.engagement_rate, tracked_at = EXCLUDED.tracked_at RETURNING *",
+        "additionalFields": {}
+      },
+      "id": "save-metrics",
+      "name": "Save Engagement Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1650, 200],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-high-engagement",
+              "leftValue": "={{ $json.engagement_rate }}",
+              "rightValue": "5",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-high-engagement",
+      "name": "If High Engagement",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1850, 200]
+    },
+    {
+      "parameters": {
+        "url": "http://publishing-service:8002/notifications/send",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"type\": \"high_engagement_alert\",\n  \"content_id\": {{ $json.content_id }},\n  \"channel\": \"{{ $json.channel }}\",\n  \"metrics\": {\n    \"views\": {{ $json.views }},\n    \"clicks\": {{ $json.clicks }},\n    \"shares\": {{ $json.shares }},\n    \"engagement_rate\": {{ $json.engagement_rate }}\n  },\n  \"message\": \"Your content is performing exceptionally well with {{ $json.engagement_rate }}% engagement rate!\"\n}",
+        "options": {}
+      },
+      "id": "send-alert",
+      "name": "Send High Engagement Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 150]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Engagement tracking initiated\",\n  \"draft_id\": {{ $('Webhook - Track Engagement').item.json.body.draft_id }},\n  \"channels_tracked\": {{ $('Get Published Content').all().length }},\n  \"tracking_interval\": \"real-time\"\n}",
+        "options": {}
+      },
+      "id": "response-tracking-started",
+      "name": "Respond Tracking Started",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [850, 350]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "engagement/update",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-update",
+      "name": "Webhook - Update Metrics",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 500],
+      "webhookId": "engagement-update-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE engagement_metrics SET views = {{ $json.body.views || views }}, clicks = {{ $json.body.clicks || clicks }}, shares = {{ $json.body.shares || shares }}, conversions = {{ $json.body.conversions || conversions }}, tracked_at = NOW() WHERE content_id = {{ $json.body.content_id }} AND channel = '{{ $json.body.channel }}' RETURNING *",
+        "additionalFields": {}
+      },
+      "id": "update-metrics",
+      "name": "Update Engagement Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Metrics updated successfully\",\n  \"content_id\": {{ $json.content_id }},\n  \"channel\": \"{{ $json.channel }}\",\n  \"current_metrics\": {\n    \"views\": {{ $json.views }},\n    \"clicks\": {{ $json.clicks }},\n    \"shares\": {{ $json.shares }},\n    \"conversions\": {{ $json.conversions }},\n    \"engagement_rate\": {{ $json.engagement_rate }}\n  }\n}",
+        "options": {}
+      },
+      "id": "response-updated",
+      "name": "Respond Updated",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 500]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "schedule-hourly",
+      "name": "Schedule - Hourly Metrics",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 700]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT pc.*, cd.campaign_id FROM published_content pc JOIN content_drafts cd ON pc.draft_id = cd.id WHERE pc.published_at > NOW() - INTERVAL '7 days' ORDER BY pc.published_at DESC",
+        "additionalFields": {}
+      },
+      "id": "get-recent-publications",
+      "name": "Get Recent Publications",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 700],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "multiplex"
+      },
+      "id": "split-recent",
+      "name": "Split Recent Publications",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [650, 700]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5678/webhook/engagement-tracking",
+        "method": "POST",
+        "bodyParametersJson": "={\n  \"action\": \"start_tracking\",\n  \"draft_id\": {{ $json.draft_id }},\n  \"publications\": [{{ $json }}]\n}",
+        "options": {}
+      },
+      "id": "refresh-metrics",
+      "name": "Refresh Publication Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 700]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.id as campaign_id, c.name, AVG(em.engagement_rate) as avg_engagement, SUM(em.views) as total_views, SUM(em.clicks) as total_clicks, SUM(em.shares) as total_shares FROM campaigns c JOIN content_drafts cd ON c.id = cd.campaign_id JOIN published_content pc ON cd.id = pc.draft_id JOIN engagement_metrics em ON pc.id = em.content_id WHERE em.tracked_at > NOW() - INTERVAL '7 days' GROUP BY c.id, c.name ORDER BY avg_engagement DESC",
+        "additionalFields": {}
+      },
+      "id": "calculate-campaign-performance",
+      "name": "Calculate Campaign Performance",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 700],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "campaign_analytics",
+        "columns": "campaign_id, avg_engagement_rate, total_views, total_clicks, total_shares, calculated_at",
+        "additionalFields": {}
+      },
+      "id": "save-campaign-analytics",
+      "name": "Save Campaign Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 700],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Marketing PostgreSQL"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Track Engagement": {
+      "main": [[{ "node": "Route by Action", "type": "main", "index": 0 }]]
+    },
+    "Route by Action": {
+      "main": [
+        [{ "node": "Get Published Content", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Published Content": {
+      "main": [
+        [
+          { "node": "Split Publications", "type": "main", "index": 0 },
+          { "node": "Respond Tracking Started", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Split Publications": {
+      "main": [[{ "node": "If Channel Type", "type": "main", "index": 0 }]]
+    },
+    "If Channel Type": {
+      "main": [
+        [{ "node": "Fetch LinkedIn Stats", "type": "main", "index": 0 }],
+        [{ "node": "Fetch WordPress Stats", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Matomo Analytics", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch LinkedIn Stats": {
+      "main": [[{ "node": "Aggregate Metrics", "type": "main", "index": 0 }]]
+    },
+    "Fetch WordPress Stats": {
+      "main": [[{ "node": "Aggregate Metrics", "type": "main", "index": 0 }]]
+    },
+    "Fetch Matomo Analytics": {
+      "main": [[{ "node": "Aggregate Metrics", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Metrics": {
+      "main": [[{ "node": "Save Engagement Metrics", "type": "main", "index": 0 }]]
+    },
+    "Save Engagement Metrics": {
+      "main": [[{ "node": "If High Engagement", "type": "main", "index": 0 }]]
+    },
+    "If High Engagement": {
+      "main": [
+        [{ "node": "Send High Engagement Alert", "type": "main", "index": 0 }]
+      ]
+    },
+    "Webhook - Update Metrics": {
+      "main": [[{ "node": "Update Engagement Metrics", "type": "main", "index": 0 }]]
+    },
+    "Update Engagement Metrics": {
+      "main": [[{ "node": "Respond Updated", "type": "main", "index": 0 }]]
+    },
+    "Schedule - Hourly Metrics": {
+      "main": [[{ "node": "Get Recent Publications", "type": "main", "index": 0 }]]
+    },
+    "Get Recent Publications": {
+      "main": [[{ "node": "Split Recent Publications", "type": "main", "index": 0 }]]
+    },
+    "Split Recent Publications": {
+      "main": [[{ "node": "Refresh Publication Metrics", "type": "main", "index": 0 }]]
+    },
+    "Refresh Publication Metrics": {
+      "main": [[{ "node": "Calculate Campaign Performance", "type": "main", "index": 0 }]]
+    },
+    "Calculate Campaign Performance": {
+      "main": [[{ "node": "Save Campaign Analytics", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 2,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}
