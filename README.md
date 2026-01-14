@@ -79,6 +79,7 @@ The platform includes a sophisticated content review workflow:
 **📋 Setup Guides:**
 - **Windows users**: See [SETUP_WINDOWS.md](SETUP_WINDOWS.md) for Windows-specific instructions
 - **Linux/Mac users**: See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed setup
+- **External n8n users**: See [EXTERNAL_N8N_SETUP.md](EXTERNAL_N8N_SETUP.md) for Cloud Run/Railway configuration
 - **Verification**: See [SETUP_VERIFICATION.md](SETUP_VERIFICATION.md) for testing
 
 **Quick Start (Linux/Mac):**
