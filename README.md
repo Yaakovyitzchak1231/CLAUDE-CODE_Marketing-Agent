@@ -76,6 +76,13 @@ The platform includes a sophisticated content review workflow:
 
 ### Installation
 
+**📋 Setup Guides:**
+- **Windows users**: See [SETUP_WINDOWS.md](SETUP_WINDOWS.md) for Windows-specific instructions
+- **Linux/Mac users**: See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed setup
+- **Verification**: See [SETUP_VERIFICATION.md](SETUP_VERIFICATION.md) for testing
+
+**Quick Start (Linux/Mac):**
+
 ```bash
 # Clone repository
 git clone https://github.com/Yaakovyitzchak1231/marketing-agent.git
