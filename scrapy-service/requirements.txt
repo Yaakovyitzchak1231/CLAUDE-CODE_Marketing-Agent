@@ -1,0 +1,46 @@
+# Scrapy Service Requirements
+
+# Core Scrapy framework
+Scrapy==2.11.0
+scrapy-splash==0.9.0
+
+# FastAPI for REST API
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+alembic==1.13.1
+
+# Redis for caching and queues
+redis==5.0.1
+
+# HTML parsing and extraction
+beautifulsoup4==4.12.3
+lxml==5.1.0
+trafilatura==1.6.3
+readability-lxml==0.8.1
+
+# Content extraction
+newspaper3k==0.2.8
+python-dateutil==2.8.2
+
+# URL handling
+w3lib==2.1.2
+
+# User agent rotation
+scrapy-user-agents==0.1.1
+scrapy-fake-useragent==1.4.4
+
+# Proxy support (optional)
+scrapy-rotating-proxies==0.6.2
+
+# Logging and monitoring
+structlog==24.1.0
+sentry-sdk==1.40.0
+
+# Utilities
+python-dotenv==1.0.0
