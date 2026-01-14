@@ -1,0 +1,34 @@
+# Streamlit Dashboard Dependencies
+
+# Web Framework
+streamlit==1.29.0
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# Visualization
+plotly==5.18.0
+altair==5.2.0
+
+# Image Processing
+Pillow==10.1.0
+
+# HTTP Requests
+requests==2.31.0
+urllib3==2.1.0
+
+# Utilities
+python-dotenv==1.0.0
+pydantic==2.5.2
+
+# Text Processing
+difflib
+json
+
+# Date/Time
+python-dateutil==2.8.2
