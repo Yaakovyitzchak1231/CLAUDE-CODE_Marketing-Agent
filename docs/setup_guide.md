@@ -79,6 +79,8 @@ git clone https://github.com/Yaakovyitzchak1231/marketing-agent.git
 cd marketing-agent
 ```
 
+**Note:** The repository may be cloned with the directory name `B2B Marketing System` or `marketing-agent` depending on your git configuration.
+
 ### Step 2: Create Environment File
 
 Copy the environment template:
@@ -90,11 +92,11 @@ cp .env.example .env
 Edit `.env` with your credentials:
 
 ```bash
-# PostgreSQL
+# PostgreSQL (3 databases: marketing, n8n, matomo)
 POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
 POSTGRES_DB=marketing_db
-POSTGRES_USER=marketing_user
+POSTGRES_USER=n8n
 POSTGRES_PASSWORD=your_secure_password_here
 
 # Ollama
@@ -120,10 +122,15 @@ SMTP_PORT=587
 SMTP_USERNAME=your.email@gmail.com
 SMTP_PASSWORD=your_app_password
 
-# n8n
+# n8n (Local Docker)
 N8N_BASIC_AUTH_ACTIVE=true
 N8N_BASIC_AUTH_USER=admin
 N8N_BASIC_AUTH_PASSWORD=your_n8n_password
+
+# n8n (External - uncomment if using Cloud Run, Railway, etc.)
+# N8N_EXTERNAL_URL=https://your-n8n-instance.run.app
+# N8N_WEBHOOK_URL=https://your-n8n-instance.run.app/webhook
+# N8N_API_KEY=your_api_key
 
 # Security
 SESSION_SECRET_KEY=generate_random_secret_key_here
@@ -780,11 +787,15 @@ services:
 ### Backups
 
 ```bash
-# Database backup script
-docker exec marketing_postgres pg_dump -U marketing_user marketing_db > backup.sql
+# Database backup script (all three databases)
+docker exec postgres pg_dump -U n8n marketing > backup_marketing.sql
+docker exec postgres pg_dump -U n8n n8n > backup_n8n.sql
+docker exec postgres pg_dump -U n8n matomo > backup_matomo.sql
 
 # Restore
-cat backup.sql | docker exec -i marketing_postgres psql -U marketing_user marketing_db
+cat backup_marketing.sql | docker exec -i postgres psql -U n8n marketing
+cat backup_n8n.sql | docker exec -i postgres psql -U n8n n8n
+cat backup_matomo.sql | docker exec -i postgres psql -U n8n matomo
 ```
 
 ---
@@ -802,6 +813,9 @@ docker exec -it marketing_ollama ollama pull llama3
 ```bash
 docker-compose restart postgres
 docker-compose logs postgres
+
+# Verify PostgreSQL is ready
+docker exec postgres pg_isready -U n8n
 ```
 
 **Issue: n8n workflows not triggering**

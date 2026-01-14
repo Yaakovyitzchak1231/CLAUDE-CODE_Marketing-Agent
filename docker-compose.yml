@@ -91,6 +91,7 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD}
     volumes:
       - ./langchain-service:/app
+      - ./chroma-init:/app/chroma-init
       - langchain_models:/app/models
       - streamlit_media:/app/media
     depends_on:

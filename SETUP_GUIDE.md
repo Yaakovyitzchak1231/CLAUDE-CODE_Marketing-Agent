@@ -18,13 +18,22 @@ Complete guide to set up and deploy the B2B Marketing Automation Platform.
 - **Domain name**: For production deployment
 - **SSL Certificate**: For HTTPS (Let's Encrypt recommended)
 
+## Deployment Options
+
+This platform supports two n8n deployment modes:
+
+1. **Local Docker n8n** (default): Run n8n in Docker alongside other services
+2. **External n8n**: Use existing n8n instance (Cloud Run, Railway, etc.)
+
+Choose your setup path below based on your preference.
+
 ## Quick Start (5 minutes)
 
 ### 1. Clone Repository
 
 ```bash
-git clone <repository-url>
-cd Marketing\ System
+git clone https://github.com/Yaakovyitzchak1231/marketing-agent.git
+cd marketing-agent
 ```
 
 ### 2. Configure Environment
@@ -76,10 +85,43 @@ chmod +x test-services.sh
 
 ### 5. Access Services
 
-- **Dashboard**: http://localhost/dashboard
-- **n8n**: http://localhost/n8n (login with N8N_USER/N8N_PASSWORD)
-- **Analytics**: http://localhost/analytics
-- **Database**: http://localhost/adminer
+- **n8n**: http://localhost:5678 (login with N8N_USER/N8N_PASSWORD from .env)
+- **Dashboard**: http://localhost:8501
+- **Matomo Analytics**: http://localhost:8081
+- **Adminer (Database)**: http://localhost:8082
+- **Ollama**: http://localhost:11434
+- **Chroma**: http://localhost:8000
+- **SearXNG**: http://localhost:8080
+
+Note: Nginx reverse proxy is optional for production deployment.
+
+### 6. External n8n Configuration (Optional)
+
+If you're using an external n8n instance (like Cloud Run), follow these steps:
+
+**Step 1: Update `.env` file:**
+```bash
+# Comment out or remove local n8n settings
+# N8N_USER=admin
+# N8N_PASSWORD=...
+
+# Add external n8n configuration
+N8N_EXTERNAL_URL=https://n8n-de5xsqtqma-wl.a.run.app
+N8N_WEBHOOK_URL=https://n8n-de5xsqtqma-wl.a.run.app/webhook
+N8N_API_KEY=your_n8n_api_key_from_cloud_instance
+```
+
+**Step 2: Disable local n8n in docker-compose:**
+```bash
+# Comment out the n8n service in docker-compose.yml
+# OR use docker-compose profiles
+docker-compose up -d postgres redis ollama chroma langchain_service streamlit_dashboard
+```
+
+**Step 3: Update n8n workflows:**
+- Import workflows to your external n8n instance
+- Update webhook URLs to point to your Cloud Run URL
+- Configure credentials for PostgreSQL (use public IP or Cloud SQL proxy)
 
 ## Detailed Setup
 
@@ -154,8 +196,13 @@ docker-compose logs -f
 
 ```bash
 # Database schema is auto-created via init-scripts/init.sql
-# Verify
-docker exec postgres psql -U marketing_user -d marketing -c "\dt"
+# Three databases are created: marketing, n8n, matomo
+
+# Verify marketing database tables
+docker exec postgres psql -U ${POSTGRES_USER} -d marketing -c "\dt"
+
+# Or with default user:
+docker exec postgres psql -U n8n -d marketing -c "\dt"
 ```
 
 #### Chroma Vector DB

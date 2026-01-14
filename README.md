@@ -78,8 +78,8 @@ The platform includes a sophisticated content review workflow:
 
 ```bash
 # Clone repository
-git clone <repo-url>
-cd marketing-system
+git clone https://github.com/Yaakovyitzchak1231/marketing-agent.git
+cd marketing-agent
 
 # Copy environment template
 cp .env.example .env
@@ -90,17 +90,20 @@ nano .env
 # Start all services
 docker-compose up -d
 
-# Pull Ollama models
-docker exec -it ollama ollama pull llama3
-docker exec -it ollama ollama pull mistral
+# Wait 2-3 minutes for services to initialize
 
-# Initialize databases
-docker exec -it postgres psql -U n8n -f /docker-entrypoint-initdb.d/init.sql
+# Pull Ollama models (required)
+docker exec -it ollama ollama pull llama3:8b
+docker exec -it ollama ollama pull mistral:7b
+
+# Initialize Chroma vector database
+docker exec -it langchain_service python /app/chroma-init/init_collections.py
 
 # Access services
 # n8n: http://localhost:5678
 # Dashboard: http://localhost:8501
 # Matomo: http://localhost:8081
+# Adminer (DB): http://localhost:8082
 ```
 
 ## Agent Architecture
@@ -155,16 +158,24 @@ docker exec -it postgres psql -U n8n -f /docker-entrypoint-initdb.d/init.sql
 
 ## Database Schema
 
-### PostgreSQL Tables
+### PostgreSQL Databases
+The system uses three PostgreSQL databases:
+- `marketing` - Main application database (see tables below)
+- `n8n` - n8n workflow execution data
+- `matomo` - Analytics tracking data
+
+### PostgreSQL Tables (marketing database)
 - `users` - User profiles and preferences
-- `brands` - Branding assets and guidelines
-- `content` - Generated content with versions
-- `content_reviews` - Review feedback and approvals
-- `competitors` - Competitor profiles and data
-- `research_insights` - Curated research findings
-- `personas` - Target audience segments
 - `campaigns` - Marketing campaign tracking
-- `publications` - Published content tracking
+- `content_drafts` - Generated content with versions
+- `content_versions` - Version history
+- `review_feedback` - Review feedback and approvals
+- `media_assets` - Generated images/videos
+- `media_edits` - Media editing history
+- `competitors` - Competitor profiles and data
+- `market_insights` - Curated research findings
+- `trends` - Trend tracking data
+- `published_content` - Published content tracking
 - `engagement_metrics` - Analytics data
 
 ### Chroma Collections
