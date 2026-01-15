@@ -18,6 +18,9 @@ alembic==1.13.1
 # Redis for caching and queues
 redis==5.0.1
 
+# Multiprocessing support
+billiard==4.2.0
+
 # HTML parsing and extraction
 beautifulsoup4==4.12.3
 lxml==5.1.0

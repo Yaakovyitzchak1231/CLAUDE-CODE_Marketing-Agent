@@ -46,13 +46,15 @@ services:
       - OLLAMA_HOST=0.0.0.0
     networks:
       - marketing_network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # GPU support commented out - running on CPU
+    # Uncomment the deploy section below if you have NVIDIA GPU + WSL2 GPU passthrough
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
   # LangChain Python Service
   langchain_service:
