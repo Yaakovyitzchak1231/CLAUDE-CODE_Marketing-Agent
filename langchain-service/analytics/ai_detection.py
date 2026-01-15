@@ -66,16 +66,23 @@ class AIDetector:
 
     def __init__(self):
         """Initialize AI detector."""
-        # Download NLTK data if needed
+        # Download NLTK data if needed - use broad exception handling
+        # as nltk.data.find() can raise various errors depending on NLTK version
         if NLTK_AVAILABLE:
             try:
                 nltk.data.find('tokenizers/punkt')
-            except LookupError:
-                nltk.download('punkt', quiet=True)
+            except (LookupError, OSError):
+                try:
+                    nltk.download('punkt', quiet=True)
+                except Exception:
+                    pass
             try:
                 nltk.data.find('tokenizers/punkt_tab')
-            except LookupError:
-                nltk.download('punkt_tab', quiet=True)
+            except (LookupError, OSError):
+                try:
+                    nltk.download('punkt_tab', quiet=True)
+                except Exception:
+                    pass
 
     def _simple_sentence_split(self, text: str) -> List[str]:
         """Fallback sentence splitting without NLTK."""
