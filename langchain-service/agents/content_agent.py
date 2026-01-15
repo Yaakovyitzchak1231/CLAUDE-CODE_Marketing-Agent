@@ -1,6 +1,13 @@
 """
 Content Creation Agent
 Generates high-quality marketing content across multiple formats and channels
+
+UPDATED: Now uses production-grade analytics modules:
+- brand_voice_analyzer.py for brand voice consistency
+- ai_detection.py for anti-AI detection
+- seo_scorer.py for SEO optimization
+
+ALL scoring uses mathematical algorithms - NO LLM hallucination.
 """
 
 from typing import List, Dict, Any, Optional
@@ -12,6 +19,15 @@ import structlog
 from datetime import datetime
 import re
 
+# Import analytics modules for REAL scoring (not LLM inference)
+try:
+    from analytics.brand_voice_analyzer import BrandVoiceAnalyzer, analyze_brand_voice
+    from analytics.ai_detection import AIDetector, calculate_ai_likelihood
+    from analytics.seo_scorer import SEOScorer, calculate_seo_score
+    from analytics.engagement_scorer import EngagementScorer
+    ANALYTICS_AVAILABLE = True
+except ImportError:
+    ANALYTICS_AVAILABLE = False
 
 logger = structlog.get_logger()
 
@@ -68,28 +84,94 @@ class ContentAgent(BaseAgent):
                         "Input should be content topic or theme."
         )
 
-        # Create SEO analysis tool
-        def analyze_seo(content: str) -> str:
-            """Analyze content for SEO optimization"""
+        # Create SEO analysis tool - USES REAL SEO SCORER (NO LLM)
+        def analyze_seo(content: str, target_keywords: str = "") -> str:
+            """
+            Analyze content for SEO optimization using MULTI-FACTOR SCORING.
 
-            # Word count
-            word_count = len(content.split())
+            Uses mathematical formulas for:
+            - Title optimization (20%)
+            - Meta description (15%)
+            - Keyword density (25%)
+            - Heading structure (15%)
+            - Content length (10%)
+            - Internal linking (10%)
+            - Image optimization (5%)
 
-            # Heading count
-            h1_count = len(re.findall(r'^#\s', content, re.MULTILINE))
-            h2_count = len(re.findall(r'^##\s', content, re.MULTILINE))
-            h3_count = len(re.findall(r'^###\s', content, re.MULTILINE))
+            NO LLM INFERENCE - all scores are mathematically calculated.
+            """
+            if ANALYTICS_AVAILABLE:
+                # Parse keywords
+                keywords = [kw.strip() for kw in target_keywords.split(',') if kw.strip()] if target_keywords else []
 
-            # Link count
-            internal_links = len(re.findall(r'\[.*?\]\((?!http)', content))
-            external_links = len(re.findall(r'\[.*?\]\(http', content))
+                # Use proper SEO scorer
+                seo_scorer = SEOScorer()
 
-            # Reading time (avg 200 words/min)
-            reading_time = round(word_count / 200, 1)
+                # Create metadata from content (extract title if present)
+                title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+                title = title_match.group(1) if title_match else ""
 
-            analysis = f"""SEO Analysis:
+                metadata = {
+                    'title': title,
+                    'description': content[:160] if len(content) > 160 else content
+                }
 
-Content Metrics:
+                # Get comprehensive SEO score
+                seo_result = seo_scorer.calculate_seo_score(content, metadata, keywords)
+
+                # Format results
+                analysis = f"""═══════════════════════════════════════════════════════════════
+SEO ANALYSIS (Multi-Factor Scoring - No LLM Hallucination)
+═══════════════════════════════════════════════════════════════
+
+📊 OVERALL SEO SCORE: {seo_result.get('seo_score', 0)}/100 (Grade: {seo_result.get('grade', 'N/A')})
+
+📈 COMPONENT BREAKDOWN:
+"""
+                for component, score in seo_result.get('component_scores', {}).items():
+                    weight = seo_result.get('weights', {}).get(component, 0) * 100
+                    analysis += f"   • {component.replace('_', ' ').title()}: {score}/100 (Weight: {weight:.0f}%)\n"
+
+                analysis += f"""
+📋 CONTENT METRICS:
+   • Word Count: {seo_result.get('metrics', {}).get('word_count', 'N/A')}
+   • Title Length: {seo_result.get('metrics', {}).get('title_length', 'N/A')} chars
+   • Meta Length: {seo_result.get('metrics', {}).get('meta_length', 'N/A')} chars
+   • Keyword Density: {seo_result.get('metrics', {}).get('keyword_density_pct', 'N/A')}%
+   • H1 Tags: {seo_result.get('metrics', {}).get('h1_count', 'N/A')}
+   • H2 Tags: {seo_result.get('metrics', {}).get('h2_count', 'N/A')}
+   • H3 Tags: {seo_result.get('metrics', {}).get('h3_count', 'N/A')}
+   • Internal Links: {seo_result.get('metrics', {}).get('internal_links', 'N/A')}
+   • Images: {seo_result.get('metrics', {}).get('images', 'N/A')}
+   • Images with Alt: {seo_result.get('metrics', {}).get('images_with_alt', 'N/A')}
+
+🎯 RECOMMENDATIONS:
+"""
+                for rec in seo_result.get('recommendations', []):
+                    analysis += f"   • {rec}\n"
+
+                if not seo_result.get('recommendations'):
+                    analysis += "   • Content meets SEO best practices\n"
+
+                analysis += f"""
+═══════════════════════════════════════════════════════════════
+Algorithm: {seo_result.get('algorithm', 'Multi-factor SEO scoring')}
+Verified: {seo_result.get('is_verified', True)} (Mathematical calculation, not LLM)
+═══════════════════════════════════════════════════════════════"""
+
+                return analysis
+
+            else:
+                # Fallback to basic analysis
+                word_count = len(content.split())
+                h1_count = len(re.findall(r'^#\s', content, re.MULTILINE))
+                h2_count = len(re.findall(r'^##\s', content, re.MULTILINE))
+                h3_count = len(re.findall(r'^###\s', content, re.MULTILINE))
+                internal_links = len(re.findall(r'\[.*?\]\((?!http)', content))
+                external_links = len(re.findall(r'\[.*?\]\(http', content))
+                reading_time = round(word_count / 200, 1)
+
+                return f"""SEO Analysis (Basic - Analytics modules not installed):
 - Word Count: {word_count} words
 - Reading Time: {reading_time} minutes
 - H1 Count: {h1_count}
@@ -98,80 +180,95 @@ Content Metrics:
 - Internal Links: {internal_links}
 - External Links: {external_links}
 
-Recommendations:
-"""
-
-            recommendations = []
-
-            if word_count < 300:
-                recommendations.append("⚠️ Content is too short. Aim for 800-2000 words for blog posts.")
-            elif word_count < 800:
-                recommendations.append("⚠️ Consider expanding content to 800-2000 words for better SEO.")
-            else:
-                recommendations.append("✓ Word count is good for SEO.")
-
-            if h1_count == 0:
-                recommendations.append("⚠️ Missing H1 heading (title).")
-            elif h1_count > 1:
-                recommendations.append("⚠️ Multiple H1 headings. Use only one H1 per page.")
-            else:
-                recommendations.append("✓ H1 heading structure is correct.")
-
-            if h2_count == 0:
-                recommendations.append("⚠️ Add H2 subheadings to improve scannability.")
-            else:
-                recommendations.append("✓ H2 subheadings present.")
-
-            if internal_links == 0:
-                recommendations.append("⚠️ Add internal links to other relevant content.")
-            else:
-                recommendations.append(f"✓ {internal_links} internal links found.")
-
-            if external_links == 0:
-                recommendations.append("⚠️ Consider adding external links to authoritative sources.")
-            else:
-                recommendations.append(f"✓ {external_links} external links found.")
-
-            analysis += "\n".join(recommendations)
-            return analysis
+Install analytics modules for comprehensive scoring: pip install textstat nltk scipy"""
 
         seo_tool = Tool(
             name="SEO_Analyzer",
             func=analyze_seo,
-            description="Analyze content for SEO best practices including word count, headings, and links. "
-                        "Input should be the content to analyze."
+            description="Analyze content for SEO using MULTI-FACTOR SCORING algorithm. "
+                        "Returns title, meta, keywords, headings, length, links, and image scores. "
+                        "All scores are mathematically calculated - NO LLM inference."
         )
 
-        # Create brand voice checker
+        # Create brand voice checker - USES REAL ANALYTICS (NO LLM)
         def check_brand_voice(content: str, brand_guidelines: Optional[str] = None) -> str:
-            """Check content against brand voice guidelines"""
+            """
+            Check content against brand voice guidelines using STATISTICAL ANALYSIS.
 
-            guidelines = brand_guidelines or """Professional yet approachable, authoritative but not arrogant,
-data-driven with storytelling, helpful and educational."""
+            Uses: textstat, NLTK - NO LLM INFERENCE
+            All scores are mathematically calculated and VERIFIABLE.
+            """
+            import json
 
-            prompt = f"""Evaluate this content against brand voice guidelines:
+            if not ANALYTICS_AVAILABLE:
+                return "Analytics modules not available. Install with: pip install textstat nltk"
 
-Brand Voice: {guidelines}
+            # Initialize analyzers
+            voice_analyzer = BrandVoiceAnalyzer()
+            ai_detector = AIDetector()
 
-Content:
-{content[:500]}...
+            # Get brand voice consistency (mathematical analysis)
+            brand_analysis = voice_analyzer.calculate_brand_consistency(content)
 
-Evaluate:
-1. Tone consistency (1-10)
-2. Professionalism level (1-10)
-3. Clarity and readability (1-10)
-4. Brand alignment (1-10)
-5. Specific suggestions for improvement
+            # Get AI likelihood score (statistical detection)
+            ai_analysis = ai_detector.calculate_ai_likelihood(content)
 
-Provide scores and actionable feedback."""
+            # Get readability metrics
+            readability = voice_analyzer.calculate_readability_metrics(content)
 
-            return prompt  # In real implementation, this would call LLM
+            # Get tone analysis
+            tone = voice_analyzer.analyze_tone(content)
+
+            # Format results
+            result = f"""═══════════════════════════════════════════════════════════════
+BRAND VOICE ANALYSIS (Mathematical - No LLM Hallucination)
+═══════════════════════════════════════════════════════════════
+
+📊 BRAND CONSISTENCY SCORE: {brand_analysis.get('consistency_score', 0)}/100 (Grade: {brand_analysis.get('grade', 'N/A')})
+
+📖 READABILITY METRICS (Flesch-Kincaid, Gunning Fog):
+   • Flesch Reading Ease: {readability.get('flesch_reading_ease', 'N/A')} ({readability.get('reading_level', 'N/A')})
+   • Grade Level: {readability.get('flesch_kincaid_grade', 'N/A')}
+   • Gunning Fog Index: {readability.get('gunning_fog', 'N/A')}
+   • Word Count: {readability.get('word_count', 'N/A')}
+   • Avg Sentence Length: {readability.get('avg_sentence_length', 'N/A')} words
+
+🎭 TONE ANALYSIS:
+   • Assessment: {tone.get('tone_assessment', 'N/A')}
+   • Formality Ratio: {tone.get('formality_ratio', 'N/A')}
+   • Jargon Density: {tone.get('jargon_density_pct', 0):.2f}%
+   • Corporate Jargon Found: {', '.join(tone.get('jargon_words_found', [])) or 'None'}
+
+🤖 AI DETECTION (Anti-AI Scoring):
+   • AI Likelihood: {ai_analysis.get('ai_likelihood_score', 0)}/100
+   • Assessment: {ai_analysis.get('assessment', 'N/A')}
+   • Burstiness: {ai_analysis.get('detailed_metrics', {}).get('burstiness', 'N/A')}
+   • Lexical Diversity (MTLD): {ai_analysis.get('detailed_metrics', {}).get('mtld', 'N/A')}
+   • Flagged Patterns: {', '.join(ai_analysis.get('flagged_phrases', [])) or 'None'}
+
+📋 RECOMMENDATIONS:
+"""
+            recommendations = brand_analysis.get('recommendations', [])
+            if recommendations:
+                for rec in recommendations:
+                    result += f"   • {rec}\n"
+            else:
+                result += "   • Content meets brand voice standards\n"
+
+            result += f"""
+═══════════════════════════════════════════════════════════════
+Algorithm: {brand_analysis.get('algorithm', 'Statistical text analysis')}
+Verified: {brand_analysis.get('is_verified', True)} (Mathematical calculation, not LLM)
+═══════════════════════════════════════════════════════════════"""
+
+            return result
 
         brand_voice_tool = Tool(
             name="Brand_Voice_Checker",
             func=check_brand_voice,
-            description="Check content for brand voice consistency and alignment. "
-                        "Input should be the content to check."
+            description="Check content for brand voice consistency using STATISTICAL ANALYSIS. "
+                        "Returns readability scores, AI detection, and tone analysis. "
+                        "All scores are mathematically calculated - NO LLM inference."
         )
 
         # Create grammar and style checker

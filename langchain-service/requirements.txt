@@ -46,10 +46,38 @@ jsonschema==4.20.0
 pytrends==4.9.2  # Google Trends API
 lxml==5.1.0  # XML parsing for SEC/government data
 
+# =============================================================================
+# NLP & TEXT ANALYSIS - CRITICAL FOR BRAND VOICE (NOT OPTIONAL)
+# =============================================================================
+# These libraries ensure content does NOT sound like AI
+
+# Core NLP Libraries - REQUIRED
+spacy==3.7.4                    # Advanced NLP, linguistic analysis, entity extraction
+textstat==0.7.3                 # Readability metrics (Flesch, Gunning Fog, SMOG)
+nltk==3.8.1                     # Natural language toolkit (tokenization, POS)
+textblob==0.18.0                # Sentiment analysis, subjectivity scoring
+
+# Anti-AI Detection - REQUIRED
+language-tool-python==2.7.1    # Grammar checking, style violation detection
+
+# =============================================================================
+# STATISTICS & ANALYTICS - FOR SCORING ALGORITHMS (NO LLM INFERENCE)
+# =============================================================================
+scipy==1.11.4                   # Statistical tests (A/B testing, z-tests)
+statsmodels==0.14.1             # Proportion tests, confidence intervals
+numpy==1.26.3                   # Numerical computing (already likely installed)
+scikit-learn==1.4.0             # TF-IDF vectorization, cosine similarity (NO LLM)
+
+# =============================================================================
+# DATA QUALITY & ENRICHMENT
+# =============================================================================
+great-expectations==0.18.8     # Data validation and quality testing
+pyjanitor==0.27.0              # DataFrame cleaning utilities
+
 # Monitoring & Logging
 structlog==24.1.0
 sentry-sdk==1.39.2
 
-# Testing (optional)
+# Testing
 pytest==7.4.4
 pytest-asyncio==0.23.3
