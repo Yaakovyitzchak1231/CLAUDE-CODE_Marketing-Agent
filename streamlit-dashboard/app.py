@@ -296,30 +296,30 @@ def show_dashboard():
                     st.markdown("<br>", unsafe_allow_html=True)
         else:
             st.info("No active campaigns. Create one to get started!")
-            if st.button("➕ Create Campaign"):
-                st.info("Navigate to Campaigns page")
+            if st.button("Create Campaign"):
+                st.switch_page("pages/campaigns.py")
 
     # Quick actions
     st.markdown("---")
-    st.subheader("⚡ Quick Actions")
+    st.subheader("Quick Actions")
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        if st.button("✨ Generate Content", use_container_width=True):
-            st.info("Navigate to Content Generation")
+        if st.button("Content Review", use_container_width=True):
+            st.switch_page("pages/content_review.py")
 
     with col2:
-        if st.button("🎨 Create Image", use_container_width=True):
-            st.info("Navigate to Image Generation")
+        if st.button("Campaigns", use_container_width=True):
+            st.switch_page("pages/campaigns.py")
 
     with col3:
-        if st.button("🎬 Create Video", use_container_width=True):
-            st.info("Navigate to Video Generation")
+        if st.button("Analytics", use_container_width=True):
+            st.switch_page("pages/analytics.py")
 
     with col4:
-        if st.button("🔍 Trend Analysis", use_container_width=True):
-            st.info("Navigate to Trend Monitoring")
+        if st.button("Trend Analysis", use_container_width=True):
+            st.switch_page("pages/trends.py")
 
 
 if __name__ == "__main__":
