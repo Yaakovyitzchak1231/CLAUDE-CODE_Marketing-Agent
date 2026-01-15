@@ -29,15 +29,22 @@ class Settings(BaseSettings):
     CHROMA_HOST: str = "chroma"
     CHROMA_PORT: int = 8000
 
-    # Ollama LLM
+    # LLM Provider Selection
+    # Options: "openai", "ollama"
+    # If OPENAI_API_KEY is set and LLM_PROVIDER is "openai", uses OpenAI
+    # Otherwise falls back to Ollama
+    LLM_PROVIDER: str = "openai"  # Default to OpenAI for speed
+
+    # Ollama LLM (fallback/local option)
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"
 
     # SearXNG Search
     SEARXNG_BASE_URL: str = "http://searxng:8080"
 
-    # OpenAI (for DALL-E 3)
+    # OpenAI (for LLM and DALL-E 3)
     OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o-mini"  # Fast and cost-effective
 
     # Midjourney (alternative)
     MIDJOURNEY_API_KEY: Optional[str] = None
@@ -267,3 +274,58 @@ class IndustryConfig:
 
 # Global industry config instance
 industry_config = IndustryConfig()
+
+
+# =============================================================================
+# LLM INITIALIZATION
+# =============================================================================
+
+def create_llm():
+    """
+    Create LLM instance based on configuration.
+
+    Priority:
+    1. If LLM_PROVIDER="openai" and OPENAI_API_KEY is set -> Use OpenAI
+    2. Otherwise -> Fall back to Ollama (local)
+
+    Returns:
+        LangChain LLM instance (OpenAI or Ollama)
+    """
+    import structlog
+    logger = structlog.get_logger()
+
+    if settings.LLM_PROVIDER == "openai" and settings.OPENAI_API_KEY:
+        try:
+            from langchain_openai import ChatOpenAI
+
+            llm = ChatOpenAI(
+                model=settings.OPENAI_MODEL,
+                temperature=settings.LLM_TEMPERATURE,
+                max_tokens=settings.LLM_MAX_TOKENS,
+                api_key=settings.OPENAI_API_KEY
+            )
+            logger.info(
+                "llm_initialized",
+                provider="openai",
+                model=settings.OPENAI_MODEL
+            )
+            return llm
+        except ImportError:
+            logger.warning("langchain_openai_not_installed_falling_back_to_ollama")
+        except Exception as e:
+            logger.warning(f"openai_init_failed_falling_back_to_ollama: {e}")
+
+    # Fallback to Ollama
+    from langchain_community.llms import Ollama
+
+    llm = Ollama(
+        model=settings.OLLAMA_MODEL,
+        base_url=settings.OLLAMA_BASE_URL
+    )
+    logger.info(
+        "llm_initialized",
+        provider="ollama",
+        model=settings.OLLAMA_MODEL,
+        base_url=settings.OLLAMA_BASE_URL
+    )
+    return llm

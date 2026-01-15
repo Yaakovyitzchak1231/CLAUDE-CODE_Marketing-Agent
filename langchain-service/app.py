@@ -28,8 +28,7 @@ from chains.image_prompt_builder import create_image_prompt_builder
 from chains.video_script_builder import create_video_script_builder
 
 # Tool and utility imports
-from langchain_community.llms import Ollama
-from config import settings
+from config import settings, create_llm
 
 logger = structlog.get_logger()
 
@@ -51,11 +50,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize LLM
-llm = Ollama(
-    model=settings.OLLAMA_MODEL or "llama3",
-    base_url=settings.OLLAMA_BASE_URL or "http://localhost:11434"
-)
+# Initialize LLM (OpenAI if configured, else Ollama)
+llm = create_llm()
 
 # Initialize agents (singleton pattern)
 agents = {}
@@ -184,14 +180,24 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Detailed health check"""
+    # Determine which LLM provider is active
+    if settings.LLM_PROVIDER == "openai" and settings.OPENAI_API_KEY:
+        llm_info = {
+            "provider": "openai",
+            "model": settings.OPENAI_MODEL
+        }
+    else:
+        llm_info = {
+            "provider": "ollama",
+            "model": settings.OLLAMA_MODEL,
+            "base_url": settings.OLLAMA_BASE_URL
+        }
+
     return {
         "status": "healthy",
         "agents": list(agents.keys()),
         "chains": list(chains.keys()),
-        "llm": {
-            "model": settings.OLLAMA_MODEL,
-            "base_url": settings.OLLAMA_BASE_URL
-        },
+        "llm": llm_info,
         "timestamp": datetime.utcnow().isoformat()
     }
 

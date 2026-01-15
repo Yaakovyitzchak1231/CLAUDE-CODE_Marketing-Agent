@@ -39,7 +39,8 @@ class SearXNGTool:
         category: str = "general",
         engines: Optional[List[str]] = None,
         language: str = "en",
-        time_range: Optional[str] = None
+        time_range: Optional[str] = None,
+        max_results: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Perform search query
@@ -50,10 +51,13 @@ class SearXNGTool:
             engines: Specific engines to use (e.g., ['google', 'duckduckgo'])
             language: Language code (default: 'en')
             time_range: Time range filter (day, week, month, year)
+            max_results: Maximum number of results to return (overrides instance default)
 
         Returns:
             List of search results with title, url, content, and metadata
         """
+        # Use parameter max_results if provided, else fall back to instance default
+        result_limit = max_results if max_results is not None else self.max_results
         # Build search parameters
         params = {
             "q": query,
@@ -82,7 +86,7 @@ class SearXNGTool:
 
             # Format and limit results
             formatted_results = []
-            for result in results[:self.max_results]:
+            for result in results[:result_limit]:
                 formatted_results.append({
                     "title": result.get("title", ""),
                     "url": result.get("url", ""),

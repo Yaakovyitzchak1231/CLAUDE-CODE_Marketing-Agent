@@ -76,15 +76,16 @@ class TrendTrackingAgent(BaseAgent):
             general_results = searxng.search_general(f"{query} trends {time_range}", max_results=15)
 
             # Extract keywords from titles
+            # Note: search methods return lists directly, not dicts with "results" key
             all_titles = []
 
-            for result in news_results.get("results", []):
+            for result in news_results:
                 all_titles.append(result.get("title", ""))
 
-            for result in social_results.get("results", []):
+            for result in social_results:
                 all_titles.append(result.get("title", ""))
 
-            for result in general_results.get("results", []):
+            for result in general_results:
                 all_titles.append(result.get("title", ""))
 
             # Extract keywords (simple approach)
@@ -105,11 +106,11 @@ class TrendTrackingAgent(BaseAgent):
                     {"keyword": kw, "mentions": count}
                     for kw, count in top_keywords
                 ],
-                "news_count": len(news_results.get("results", [])),
-                "social_count": len(social_results.get("results", [])),
+                "news_count": len(news_results),
+                "social_count": len(social_results),
                 "sources": {
-                    "news": news_results.get("results", [])[:5],
-                    "social": social_results.get("results", [])[:5]
+                    "news": news_results[:5],
+                    "social": social_results[:5]
                 }
             }
 
@@ -144,7 +145,7 @@ class TrendTrackingAgent(BaseAgent):
                 "other": []
             }
 
-            for result in social_results.get("results", []):
+            for result in social_results:
                 url = result.get("url", "").lower()
 
                 if "reddit.com" in url:
@@ -158,7 +159,7 @@ class TrendTrackingAgent(BaseAgent):
 
             insights = {
                 "topic": topic,
-                "total_mentions": len(social_results.get("results", [])),
+                "total_mentions": len(social_results),
                 "by_platform": {
                     platform: {
                         "count": len(results),
@@ -203,7 +204,7 @@ class TrendTrackingAgent(BaseAgent):
             # Extract potential emerging topics
             topics = {}
 
-            for result in recent_results.get("results", []):
+            for result in recent_results:
                 title = result.get("title", "")
 
                 # Extract capitalized phrases (potential topics)
@@ -255,10 +256,10 @@ class TrendTrackingAgent(BaseAgent):
             week_results = searxng.search_news(topic, time_range="week", max_results=10)
             month_results = searxng.search_news(topic, time_range="month", max_results=10)
 
-            # Calculate momentum
-            today_count = len(today_results.get("results", []))
-            week_count = len(week_results.get("results", []))
-            month_count = len(month_results.get("results", []))
+            # Calculate momentum (search methods return lists directly)
+            today_count = len(today_results)
+            week_count = len(week_results)
+            month_count = len(month_results)
 
             # Simple momentum calculation
             if week_count > 0:
@@ -366,7 +367,7 @@ class TrendTrackingAgent(BaseAgent):
                 tier3 = 0  # Industry pubs
                 tier4 = 0  # General news
 
-                for result in news_results.get("results", []):
+                for result in news_results:
                     url = result.get("url", "").lower()
                     if any(gov in url for gov in [".gov", ".edu", "reuters", "ap"]):
                         tier1 += 1
@@ -389,7 +390,7 @@ class TrendTrackingAgent(BaseAgent):
             # 4. Job postings (use SearXNG)
             try:
                 job_results = searxng.search_general(f"{topic} jobs hiring", max_results=20)
-                job_count = len([r for r in job_results.get("results", [])
+                job_count = len([r for r in job_results
                                if any(w in r.get("title", "").lower()
                                      for w in ["job", "hire", "career", "position"])])
                 data_sources['job_postings'] = {
@@ -408,7 +409,7 @@ class TrendTrackingAgent(BaseAgent):
 
                 positive_count = 0
                 negative_count = 0
-                for result in social_results.get("results", []):
+                for result in social_results:
                     text = (result.get("title", "") + " " + result.get("content", "")).lower()
                     positive_count += sum(1 for w in positive_words if w in text)
                     negative_count += sum(1 for w in negative_words if w in text)
@@ -418,7 +419,7 @@ class TrendTrackingAgent(BaseAgent):
 
                 data_sources['social_sentiment'] = {
                     'avg_sentiment': round(sentiment, 2),  # -1 to +1 scale
-                    'mention_volume': len(social_results.get("results", []))
+                    'mention_volume': len(social_results)
                 }
             except Exception as e:
                 logger.warning(f"Social search unavailable: {e}")
@@ -861,7 +862,7 @@ Include side-by-side comparison with data."""
             tier_counts = {'tier1_authoritative': 0, 'tier2_business_news': 0,
                           'tier3_industry_pubs': 0, 'tier4_general_news': 0}
 
-            for result in news_results.get("results", []):
+            for result in news_results:
                 url = result.get("url", "").lower()
                 if any(s in url for s in [".gov", ".edu", "reuters", "ap"]):
                     tier_counts['tier1_authoritative'] += 1
@@ -879,7 +880,7 @@ Include side-by-side comparison with data."""
         # 4. Job postings
         try:
             job_results = self.searxng.search_general(f"{topic} jobs hiring", max_results=20)
-            job_count = len([r for r in job_results.get("results", [])
+            job_count = len([r for r in job_results
                            if any(w in r.get("title", "").lower()
                                  for w in ["job", "hire", "career", "position"])])
             data_sources['job_postings'] = {
@@ -896,7 +897,7 @@ Include side-by-side comparison with data."""
             negative_words = ["bad", "poor", "terrible", "hate", "worst", "fail"]
 
             pos, neg = 0, 0
-            for result in social_results.get("results", []):
+            for result in social_results:
                 text = (result.get("title", "") + " " + result.get("content", "")).lower()
                 pos += sum(1 for w in positive_words if w in text)
                 neg += sum(1 for w in negative_words if w in text)
@@ -906,7 +907,7 @@ Include side-by-side comparison with data."""
 
             data_sources['social_sentiment'] = {
                 'avg_sentiment': round(sentiment, 2),
-                'mention_volume': len(social_results.get("results", []))
+                'mention_volume': len(social_results)
             }
         except Exception as e:
             logger.warning(f"Social search unavailable: {e}")
