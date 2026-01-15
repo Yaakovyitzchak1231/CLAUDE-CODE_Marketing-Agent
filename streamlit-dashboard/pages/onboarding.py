@@ -35,33 +35,43 @@ def get_db_connection():
     """Create and cache database connection"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
+        conn.autocommit = True  # Prevent transaction issues
         return conn
     except Exception as e:
         st.error(f"Database connection failed: {str(e)}")
         return None
 
 
-def get_user_profile(user_id: int = 1) -> Optional[Dict]:
-    """Fetch user profile from database"""
+def get_user_profile(user_id: str = None) -> Optional[Dict]:
+    """Fetch user profile from database. If no user_id provided, gets first user."""
     conn = get_db_connection()
     if not conn:
         return None
 
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute("""
-                SELECT id, email, company, created_at
-                FROM users
-                WHERE id = %s
-            """, (user_id,))
+            if user_id:
+                cursor.execute("""
+                    SELECT id, email, company, created_at
+                    FROM users
+                    WHERE id = %s::uuid
+                """, (user_id,))
+            else:
+                # Get first/default user
+                cursor.execute("""
+                    SELECT id, email, company, created_at
+                    FROM users
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                """)
             return cursor.fetchone()
     except Exception as e:
         st.error(f"Error fetching user profile: {str(e)}")
         return None
 
 
-def create_user_profile(email: str, company: str) -> Optional[int]:
-    """Create new user profile"""
+def create_user_profile(email: str, company: str) -> Optional[str]:
+    """Create new user profile, returns UUID string"""
     conn = get_db_connection()
     if not conn:
         return None
@@ -83,7 +93,7 @@ def create_user_profile(email: str, company: str) -> Optional[int]:
         return None
 
 
-def update_user_profile(user_id: int, email: str, company: str) -> bool:
+def update_user_profile(user_id: str, email: str, company: str) -> bool:
     """Update existing user profile"""
     conn = get_db_connection()
     if not conn:
@@ -133,8 +143,8 @@ def main():
 
     initialize_session_state()
 
-    # Check if user already exists
-    user_profile = get_user_profile(user_id=1)
+    # Check if user already exists (get first/default user)
+    user_profile = get_user_profile()
 
     if user_profile and not st.session_state.get('force_onboarding', False):
         # User exists - show profile management

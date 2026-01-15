@@ -11,6 +11,13 @@ ast-comments==1.1.2
 
 # Testing
 pytest==7.4.4
+pytest-asyncio==0.23.3
+
+# Browser Automation
+playwright==1.40.0
+
+# HTTP Client (async)
+aiohttp==3.9.1
 
 # Configuration & Logging
 pyyaml==6.0.1
@@ -19,3 +26,7 @@ rich==13.7.0
 
 # Utilities
 python-dotenv==1.0.0
+
+# Web Interface
+Flask==3.0.0
+flask-cors==4.0.0

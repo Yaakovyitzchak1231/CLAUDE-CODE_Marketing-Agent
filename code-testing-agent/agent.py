@@ -14,6 +14,10 @@ import argparse
 import structlog
 from rich.console import Console
 from rich.panel import Panel
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from config import Config
 from core.main_agent import CodeTestingAgent
@@ -46,7 +50,33 @@ async def main():
         "--task",
         help="Specific task description (optional, uses default audit task if not provided)"
     )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Enable web-based streaming interface (access at http://localhost:5000)"
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=5000,
+        help="Port for web interface (default: 5000)"
+    )
+    parser.add_argument(
+        "--directory", "-d",
+        help="Target directory to analyze (overrides config project.root_path)"
+    )
     args = parser.parse_args()
+
+    # Handle directory override
+    if args.directory:
+        target_dir = Path(args.directory).resolve()
+        if not target_dir.exists():
+            console.print(f"[red]Directory not found: {args.directory}[/red]")
+            sys.exit(1)
+        if not target_dir.is_dir():
+            console.print(f"[red]Not a directory: {args.directory}[/red]")
+            sys.exit(1)
+        console.print(f"[cyan]Target directory: {target_dir}[/cyan]")
 
     # Load config
     config_path = Path(args.config)
@@ -58,6 +88,13 @@ async def main():
         sys.exit(1)
 
     config = Config(args.config)
+
+    # Override project root if --directory was specified
+    if args.directory:
+        target_dir = Path(args.directory).resolve()
+        config.config['project']['root_path'] = str(target_dir)
+        # Try to extract project name from directory
+        config.config['project']['name'] = target_dir.name
 
     # Display banner
     console.print(Panel.fit(
@@ -80,28 +117,60 @@ async def main():
         console.print("Set it with: export GITHUB_TOKEN=your_token_here")
         console.print()
 
-    # Default task
-    task = args.task or """
-    Execute a comprehensive audit of this codebase:
+    # Start web server if enabled
+    web_thread = None
+    if args.web:
+        import threading
+        from web_server import run_server
 
-    1. Map the entire project structure using Glob to find all files
-    2. Identify all AI/LLM integration points (search for: openai, anthropic, ollama)
-    3. Test for hallucinations in AI outputs by delegating to hallucination_detector
-    4. For any issues found, delegate to fix_generator to create fixes
-    5. For each fix, delegate to pr_manager to submit GitHub PRs
+        console.print(f"[cyan]Starting web interface at http://localhost:{args.web_port}[/cyan]")
+        console.print(f"[cyan]Open your browser to see the live stream![/cyan]\n")
 
-    Be thorough and examine EVERY file systematically.
-    Use TodoWrite to track your progress.
-    """
+        web_thread = threading.Thread(
+            target=run_server,
+            args=('0.0.0.0', args.web_port),
+            daemon=True
+        )
+        web_thread.start()
 
-    console.print("[cyan]Starting audit...[/cyan]\n")
+        # Give the server a moment to start
+        await asyncio.sleep(1)
 
-    # Run agent
-    agent = CodeTestingAgent(config.config)
+    # Determine task
+    if args.web and not args.task:
+        # In web mode without explicit task, wait for user input
+        task = None
+        console.print("[cyan]Agent ready and waiting for your instructions...[/cyan]")
+        console.print(f"[cyan]Open http://localhost:{args.web_port} and send your first message![/cyan]\n")
+    else:
+        # Use provided task or default audit task
+        task = args.task or """
+        Execute a comprehensive audit of this codebase:
+
+        1. Map the entire project structure using Glob to find all files
+        2. Identify all AI/LLM integration points (search for: openai, anthropic, ollama)
+        3. Test for hallucinations in AI outputs by delegating to hallucination_detector
+        4. For any issues found, delegate to fix_generator to create fixes
+        5. For each fix, delegate to pr_manager to submit GitHub PRs
+
+        Be thorough and examine EVERY file systematically.
+        Use TodoWrite to track your progress.
+        """
+        console.print("[cyan]Starting with default task...[/cyan]\n")
+
+    # Run agent with web streaming enabled if --web flag is set
+    agent = CodeTestingAgent(config.config, enable_web_stream=args.web)
 
     try:
         await agent.run(task)
         console.print("\n[green]✓ Agent execution complete![/green]")
+
+        if args.web:
+            console.print(f"\n[cyan]Web interface still available at http://localhost:{args.web_port}[/cyan]")
+            console.print("[yellow]Press Ctrl+C to exit[/yellow]")
+            # Keep the program alive so web interface stays accessible
+            await asyncio.Event().wait()
+
     except KeyboardInterrupt:
         console.print("\n[yellow]⚠ Agent interrupted by user[/yellow]")
     except Exception as e:

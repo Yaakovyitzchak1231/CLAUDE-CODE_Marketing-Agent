@@ -646,6 +646,6 @@ Show all calculations with formulas."""
         return result
 
 
-def create_market_analysis_agent() -> MarketAnalysisAgent:
+def create_market_agent() -> MarketAnalysisAgent:
     """Factory function to create Market Analysis Agent"""
     return MarketAnalysisAgent()

@@ -33,6 +33,7 @@ def get_db_connection():
     """Create database connection"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
+        conn.autocommit = True  # Prevent transaction issues
         return conn
     except Exception as e:
         st.error(f"Database connection failed: {str(e)}")
@@ -224,7 +225,7 @@ def main():
                     # Thumbnail preview
                     if media.get('url'):
                         try:
-                            st.image(media['url'], use_column_width=True)
+                            st.image(media['url'])
                         except:
                             st.caption("Preview unavailable")
 
@@ -304,7 +305,7 @@ def show_image_editor(media: Dict):
         st.markdown("#### Current Image")
 
         if media.get('url'):
-            st.image(media['url'], use_column_width=True)
+            st.image(media['url'])
         else:
             st.warning("Image URL not available")
 

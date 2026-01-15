@@ -36,6 +36,7 @@ def get_db_connection():
     """Create and cache database connection"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
+        conn.autocommit = True  # Prevent transaction issues
         return conn
     except Exception as e:
         st.error(f"Database connection failed: {str(e)}")
@@ -411,7 +412,7 @@ def render_asset_card(asset: Dict):
 
     # Asset thumbnail
     if asset['url']:
-        st.image(asset['url'], use_container_width=True)
+        st.image(asset['url'])
     else:
         st.markdown(f"**{asset['type'].upper()}**")
         st.caption(f"No preview available")
@@ -555,7 +556,7 @@ if st.session_state.get('selected_asset_id'):
             st.subheader("Preview")
             if asset_detail['url']:
                 if asset_detail['type'] == 'image':
-                    st.image(asset_detail['url'], use_container_width=True)
+                    st.image(asset_detail['url'])
                 elif asset_detail['type'] == 'video':
                     st.video(asset_detail['url'])
             else:

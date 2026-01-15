@@ -121,6 +121,41 @@ Always structure your research with:
 
 Be thorough but concise. Focus on actionable intelligence."""
 
+    def conduct_research(
+        self,
+        query: str,
+        depth: str = "standard",
+        sources: list = None
+    ) -> dict:
+        """
+        Conduct general research on a query
+
+        Args:
+            query: Research query/topic
+            depth: Research depth (quick, standard, deep)
+            sources: Optional list of source types to use
+
+        Returns:
+            Dict with research findings
+        """
+        # Build research prompt based on depth
+        depth_instructions = {
+            "quick": "Provide a brief overview with key points.",
+            "standard": "Provide comprehensive research with analysis.",
+            "deep": "Conduct exhaustive research with detailed analysis and multiple perspectives."
+        }
+
+        prompt = f"""Research the following topic: {query}
+
+Depth level: {depth}
+{depth_instructions.get(depth, depth_instructions['standard'])}
+
+{f"Focus on these source types: {', '.join(sources)}" if sources else ""}
+
+Provide structured findings with sources."""
+
+        return self.run(prompt)
+
     def research_market(self, topic: str, industry: str = None) -> dict:
         """
         Conduct market research on a topic

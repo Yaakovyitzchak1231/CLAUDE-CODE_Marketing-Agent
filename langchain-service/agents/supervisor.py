@@ -348,3 +348,20 @@ Respond with ONLY the agent name (e.g., "research_agent") or "finish" if the wor
         # LangGraph doesn't have full async support yet
         # For now, wrap sync execution
         return self.execute(campaign_id, task_type, initial_prompt)
+
+
+def create_supervisor(llm=None, specialist_agents: Dict[str, Any] = None) -> SupervisorAgent:
+    """
+    Factory function to create SupervisorAgent instance
+
+    Args:
+        llm: LLM instance (not used by supervisor, kept for API compatibility)
+        specialist_agents: Dict of specialist agents (optional, can be empty dict)
+
+    Returns:
+        SupervisorAgent instance
+    """
+    if specialist_agents is None:
+        specialist_agents = {}
+
+    return SupervisorAgent(specialist_agents=specialist_agents)

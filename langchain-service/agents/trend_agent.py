@@ -6,7 +6,7 @@ Monitors industry trends, social media buzz, and emerging topics
 from typing import Dict, List, Optional, Any
 from langchain.tools import Tool
 from .base_agent import BaseAgent
-from tools.searxng_tool import SearXNGTool
+from tools.search_tool import SearXNGTool
 import structlog
 from datetime import datetime, timedelta
 import json

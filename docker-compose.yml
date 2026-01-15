@@ -212,6 +212,21 @@ services:
       - marketing_network
 
   # ==================== ANALYTICS ====================
+  # MariaDB for Matomo (Matomo's official image doesn't support PostgreSQL)
+  matomo_db:
+    image: mariadb:10.11
+    container_name: matomo_db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=matomo_root_password
+      - MYSQL_DATABASE=matomo
+      - MYSQL_USER=matomo_user
+      - MYSQL_PASSWORD=matomo_password
+    volumes:
+      - matomo_db_data:/var/lib/mysql
+    networks:
+      - marketing_network
+
   matomo:
     image: matomo:latest
     container_name: matomo
@@ -219,16 +234,16 @@ services:
     ports:
       - "8081:80"
     environment:
-      - MATOMO_DATABASE_HOST=postgres
-      - MATOMO_DATABASE_ADAPTER=pgsql
+      - MATOMO_DATABASE_HOST=matomo_db
+      - MATOMO_DATABASE_ADAPTER=mysql
       - MATOMO_DATABASE_TABLES_PREFIX=matomo_
       - MATOMO_DATABASE_DBNAME=matomo
-      - MATOMO_DATABASE_USERNAME=${POSTGRES_USER:-n8n}
-      - MATOMO_DATABASE_PASSWORD=${POSTGRES_PASSWORD:-n8npassword}
+      - MATOMO_DATABASE_USERNAME=matomo_user
+      - MATOMO_DATABASE_PASSWORD=matomo_password
     volumes:
       - matomo_data:/var/www/html
     depends_on:
-      - postgres
+      - matomo_db
     networks:
       - marketing_network
 
@@ -304,6 +319,7 @@ volumes:
   chroma_data:
   redis_data:
   matomo_data:
+  matomo_db_data:
   langchain_models:
   playwright_cache:
   streamlit_media:

@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # Ollama LLM
     OLLAMA_BASE_URL: str = "http://ollama:11434"
-    OLLAMA_MODEL: str = "llama3:8b"
+    OLLAMA_MODEL: str = "llama3.1:8b"
 
     # SearXNG Search
     SEARXNG_BASE_URL: str = "http://searxng:8080"
@@ -41,12 +41,14 @@ class Settings(BaseSettings):
 
     # Midjourney (alternative)
     MIDJOURNEY_API_KEY: Optional[str] = None
+    MIDJOURNEY_API_URL: Optional[str] = "https://api.midjourney-api.com/v1"
 
     # Runway ML (for video)
     RUNWAY_API_KEY: Optional[str] = None
 
     # Pika (alternative)
     PIKA_API_KEY: Optional[str] = None
+    PIKA_API_URL: Optional[str] = "https://api.pika.art/v1"
 
     # LinkedIn Publishing
     LINKEDIN_ACCESS_TOKEN: Optional[str] = None

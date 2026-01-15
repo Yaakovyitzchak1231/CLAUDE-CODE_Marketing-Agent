@@ -33,6 +33,7 @@ def get_db_connection():
     """Create and cache database connection"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
+        conn.autocommit = True  # Prevent transaction issues
         return conn
     except Exception as e:
         st.error(f"Database connection failed: {str(e)}")
@@ -286,7 +287,13 @@ def render_campaign_card(campaign: Dict):
 
         with col3:
             st.metric("In Review", campaign['review_count'])
-            st.caption(f"Target: {campaign['target_audience'][:30]}...")
+            # Handle JSONB target_audience - display as readable string
+            audience = campaign.get('target_audience') or {}
+            if isinstance(audience, dict):
+                audience_str = ', '.join(f"{k}: {v}" for k, v in list(audience.items())[:2])
+            else:
+                audience_str = str(audience)[:30]
+            st.caption(f"Target: {audience_str[:40]}...")
 
         with col4:
             if st.button("👁️ View", key=f"view_{campaign['id']}", use_container_width=True):
@@ -326,7 +333,13 @@ def show_campaign_details(campaign_id: int):
         st.markdown(f"**Created:** {campaign['created_at'].strftime('%Y-%m-%d %H:%M')}")
 
     with col2:
-        st.markdown(f"**Target Audience:** {campaign['target_audience']}")
+        # Handle JSONB target_audience
+        audience = campaign.get('target_audience') or {}
+        if isinstance(audience, dict):
+            audience_display = ', '.join(f"{k}: {v}" for k, v in audience.items())
+        else:
+            audience_display = str(audience)
+        st.markdown(f"**Target Audience:** {audience_display}")
 
     with col3:
         # Quick actions
@@ -560,9 +573,15 @@ def show_edit_campaign_form(campaign_id: int):
 
         name = st.text_input("Campaign Name *", value=campaign['name'])
 
+        # Convert JSONB to string for editing
+        existing_audience = campaign.get('target_audience') or {}
+        if isinstance(existing_audience, dict):
+            audience_text = json.dumps(existing_audience, indent=2)
+        else:
+            audience_text = str(existing_audience)
         target_audience = st.text_area(
             "Target Audience *",
-            value=campaign['target_audience'],
+            value=audience_text,
             height=100
         )
 

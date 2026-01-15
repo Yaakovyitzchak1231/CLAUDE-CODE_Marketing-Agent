@@ -83,8 +83,7 @@ class BaseAgent(ABC):
         return Ollama(
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_MODEL,
-            temperature=settings.LLM_TEMPERATURE,
-            num_predict=settings.LLM_MAX_TOKENS
+            temperature=settings.LLM_TEMPERATURE
         )
 
     def _create_executor(self) -> AgentExecutor:
@@ -116,7 +115,7 @@ Thought: {agent_scratchpad}"""
 
         prompt = PromptTemplate(
             template=template,
-            input_variables=["agent_name", "agent_description", "tools", "tool_names", "chat_history", "input", "agent_scratchpad"],
+            input_variables=["tools", "tool_names", "chat_history", "input", "agent_scratchpad"],
             partial_variables={
                 "agent_name": self.name,
                 "agent_description": self.description

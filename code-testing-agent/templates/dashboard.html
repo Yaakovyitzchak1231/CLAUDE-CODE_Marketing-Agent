@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Testing Agent - Live Stream</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            background: #4ade80;
+            border-radius: 20px;
+            font-size: 0.9em;
+            color: #000;
+            font-weight: bold;
+        }
+
+        .status.disconnected {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 0 20px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 20px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .stream-container {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .interaction-panel {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-height: 70vh;
+        }
+
+        .control-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .control-btn {
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.9em;
+        }
+
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .control-btn.pause {
+            background: #f59e0b;
+            color: #000;
+        }
+
+        .control-btn.stop {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .control-btn.interrupt {
+            background: #8b5cf6;
+            color: #fff;
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .chat-input-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex-grow: 1;
+        }
+
+        .chat-label {
+            font-weight: bold;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        #user-input {
+            width: 100%;
+            min-height: 100px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            color: #fff;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 1em;
+            resize: vertical;
+        }
+
+        #user-input:focus {
+            outline: none;
+            border-color: #06b6d4;
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        #send-btn {
+            padding: 12px;
+            background: linear-gradient(135deg, #06b6d4, #0284c7);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            font-weight: bold;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        #send-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.4);
+        }
+
+        #send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .input-hint {
+            font-size: 0.8em;
+            opacity: 0.6;
+            font-style: italic;
+        }
+
+        .waiting-indicator {
+            display: none;
+            padding: 10px;
+            background: rgba(251, 191, 36, 0.2);
+            border-left: 4px solid #fbbf24;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+
+        .waiting-indicator.active {
+            display: block;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .ready-prompt {
+            padding: 15px;
+            background: rgba(6, 182, 212, 0.2);
+            border: 2px solid #06b6d4;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.1em;
+            margin-bottom: 15px;
+        }
+
+        .ready-prompt .icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        /* Directory selector */
+        .directory-selector {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .directory-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .directory-input input {
+            flex: 1;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+        }
+
+        .directory-input input:focus {
+            outline: none;
+            border-color: #06b6d4;
+        }
+
+        .directory-input button {
+            padding: 10px 20px;
+            background: #8b5cf6;
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        /* Approval modal */
+        .approval-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .approval-modal.active {
+            display: flex;
+        }
+
+        .approval-content {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2d1b4e 100%);
+            border: 2px solid #f59e0b;
+            border-radius: 12px;
+            padding: 25px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .approval-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #f59e0b;
+        }
+
+        .approval-type {
+            display: inline-block;
+            padding: 4px 12px;
+            background: rgba(245, 158, 11, 0.2);
+            border-radius: 20px;
+            font-size: 0.75em;
+            text-transform: uppercase;
+        }
+
+        .approval-description {
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .approval-details {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .approval-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: flex-end;
+        }
+
+        .approval-btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .approval-btn.approve {
+            background: #10b981;
+            color: #fff;
+        }
+
+        .approval-btn.reject {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .approval-btn.modify {
+            background: #8b5cf6;
+            color: #fff;
+        }
+
+        .approval-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Sub-agent status */
+        .subagent-status {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .subagent-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .subagent-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 5px;
+            font-size: 0.85em;
+        }
+
+        .subagent-item.active {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid #10b981;
+        }
+
+        .subagent-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6b7280;
+        }
+
+        .subagent-item.active .subagent-dot {
+            background: #10b981;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .event {
+            background: rgba(255, 255, 255, 0.1);
+            border-left: 4px solid;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .event.thinking {
+            border-left-color: #06b6d4;
+        }
+
+        .event.deep-thinking {
+            border-left-color: #d946ef;
+        }
+
+        .event.tool-use {
+            border-left-color: #facc15;
+        }
+
+        .event.tool-result {
+            border-left-color: #4ade80;
+        }
+
+        .event.tool-error {
+            border-left-color: #ef4444;
+        }
+
+        .event.system {
+            border-left-color: #94a3b8;
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .event-type {
+            font-weight: bold;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .event-timestamp {
+            font-size: 0.8em;
+            opacity: 0.7;
+        }
+
+        .event-content {
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .event-content code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .tool-params {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.2em;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #fff;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤖 Code Testing Agent</h1>
+        <div class="status" id="status">Connecting...</div>
+        <div class="agent-status" id="agent-status" style="margin-top: 8px; font-size: 0.85em; opacity: 0.8;">
+            Status: <span id="agent-state">initializing</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="event-count">0</div>
+                <div class="stat-label">Events Received</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="tool-count">0</div>
+                <div class="stat-label">Tools Used</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="error-count">0</div>
+                <div class="stat-label">Errors</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="runtime">00:00</div>
+                <div class="stat-label">Runtime</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="stream-container" id="stream-container">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Connecting to agent...
+                </div>
+            </div>
+
+            <div class="interaction-panel">
+                <h3 style="margin: 0; font-size: 1.2em;">💬 Interact with Agent</h3>
+
+                <!-- Directory Selector -->
+                <div class="directory-selector">
+                    <label style="font-weight: bold; font-size: 0.9em;">📂 Target Directory:</label>
+                    <div class="directory-input">
+                        <input type="text" id="directory-path" placeholder="Enter directory path to analyze..." />
+                        <button onclick="setDirectory()">Set</button>
+                    </div>
+                </div>
+
+                <!-- Sub-agent Status -->
+                <div class="subagent-status">
+                    <label style="font-weight: bold; font-size: 0.9em;">🤖 Sub-Agents:</label>
+                    <div class="subagent-list">
+                        <div class="subagent-item" id="sa-codebase"><span class="subagent-dot"></span>Codebase Analyzer</div>
+                        <div class="subagent-item" id="sa-security"><span class="subagent-dot"></span>Security Auditor</div>
+                        <div class="subagent-item" id="sa-dependency"><span class="subagent-dot"></span>Dependency Auditor</div>
+                        <div class="subagent-item" id="sa-performance"><span class="subagent-dot"></span>Performance Analyzer</div>
+                        <div class="subagent-item" id="sa-integration"><span class="subagent-dot"></span>Integration Tester</div>
+                        <div class="subagent-item" id="sa-browser"><span class="subagent-dot"></span>Browser Tester</div>
+                        <div class="subagent-item" id="sa-hallucination"><span class="subagent-dot"></span>Hallucination Detector</div>
+                        <div class="subagent-item" id="sa-fix"><span class="subagent-dot"></span>Fix Generator</div>
+                        <div class="subagent-item" id="sa-pr"><span class="subagent-dot"></span>PR Manager</div>
+                    </div>
+                </div>
+
+                <div class="ready-prompt" id="ready-prompt" style="display: none;">
+                    <div class="icon">👋</div>
+                    <div><strong>I'm ready to help!</strong></div>
+                    <div style="font-size: 0.9em; opacity: 0.8; margin-top: 5px;">
+                        Send your first instruction below to get started
+                    </div>
+                </div>
+
+                <div class="waiting-indicator" id="waiting-indicator">
+                    ⏳ Agent is waiting for your response...
+                </div>
+
+                <div class="control-buttons">
+                    <button class="control-btn interrupt" id="interrupt-btn" onclick="sendControl('interrupt')">
+                        ⏸️ Interrupt
+                    </button>
+                    <button class="control-btn stop" id="stop-btn" onclick="sendControl('stop')">
+                        ⏹️ Stop
+                    </button>
+                </div>
+
+                <div class="chat-input-container">
+                    <label class="chat-label" for="user-input">Send Message to Agent:</label>
+                    <textarea
+                        id="user-input"
+                        placeholder="Type your message, question, or response here..."
+                        onkeydown="handleKeyPress(event)"
+                        autofocus
+                    ></textarea>
+                    <div class="input-hint">💡 Tip: Press Ctrl+Enter to send</div>
+                    <button id="send-btn" onclick="sendMessage()">
+                        📤 Send Message
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approval Modal -->
+    <div class="approval-modal" id="approval-modal">
+        <div class="approval-content">
+            <div class="approval-header">
+                <span>⚠️</span>
+                <span id="approval-title">Approval Required</span>
+                <span class="approval-type" id="approval-type"></span>
+            </div>
+            <div class="approval-description" id="approval-description"></div>
+            <div class="approval-details" id="approval-details"></div>
+            <div class="approval-buttons">
+                <button class="approval-btn reject" onclick="handleApproval(false)">❌ Reject</button>
+                <button class="approval-btn modify" onclick="handleApproval(true, true)">✏️ Modify</button>
+                <button class="approval-btn approve" onclick="handleApproval(true)">✅ Approve</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventCount = 0;
+        let toolCount = 0;
+        let errorCount = 0;
+        let startTime = Date.now();
+        let eventSource = null;
+
+        const streamContainer = document.getElementById('stream-container');
+        const statusElement = document.getElementById('status');
+
+        const eventTypeIcons = {
+            'thinking': '🤖',
+            'deep-thinking': '💭',
+            'tool-use': '🔧',
+            'tool-result': '✅',
+            'tool-error': '❌',
+            'system': '⚙️',
+            'connected': '🟢'
+        };
+
+        const eventTypeLabels = {
+            'thinking': 'Agent Thinking',
+            'deep-thinking': 'Deep Thinking',
+            'tool-use': 'Using Tool',
+            'tool-result': 'Tool Result',
+            'tool-error': 'Tool Error',
+            'system': 'System',
+            'connected': 'Connected',
+            'user-message': 'You',
+            'input-request': 'Agent Needs Response',
+            'status-change': 'Status Update'
+        };
+
+        async function sendMessage() {
+            const input = document.getElementById('user-input');
+            const message = input.value.trim();
+
+            if (!message) {
+                alert('Please enter a message');
+                return;
+            }
+
+            // Disable input while sending
+            input.disabled = true;
+            document.getElementById('send-btn').disabled = true;
+
+            try {
+                const response = await fetch('/api/send_message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message })
+                });
+
+                if (response.ok) {
+                    // Clear input
+                    input.value = '';
+                    // Hide waiting indicators
+                    document.getElementById('waiting-indicator').classList.remove('active');
+                    document.getElementById('ready-prompt').style.display = 'none';
+                } else {
+                    alert('Failed to send message');
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('Error sending message: ' + error.message);
+            } finally {
+                input.disabled = false;
+                document.getElementById('send-btn').disabled = false;
+                input.focus();
+            }
+        }
+
+        async function sendControl(command) {
+            if (!confirm(`Are you sure you want to ${command} the agent?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/control', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ command })
+                });
+
+                if (!response.ok) {
+                    alert(`Failed to ${command} agent`);
+                }
+            } catch (error) {
+                console.error(`Error sending ${command} command:`, error);
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        function handleKeyPress(event) {
+            // Ctrl+Enter or Cmd+Enter to send
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function connectToStream() {
+            streamContainer.innerHTML = '<div class="loading"><div class="spinner"></div>Connecting to agent...</div>';
+
+            eventSource = new EventSource('/stream');
+
+            eventSource.onopen = function() {
+                statusElement.textContent = 'Connected';
+                statusElement.className = 'status';
+                streamContainer.innerHTML = '';
+            };
+
+            eventSource.onmessage = function(e) {
+                const event = JSON.parse(e.data);
+                handleEvent(event);
+            };
+
+            eventSource.onerror = function() {
+                statusElement.textContent = 'Disconnected';
+                statusElement.className = 'status disconnected';
+                setTimeout(connectToStream, 5000);
+            };
+        }
+
+        function handleEvent(event) {
+            if (event.type === 'keepalive') return;
+
+            // Don't count system messages as events
+            if (event.type !== 'system' && event.type !== 'status-change') {
+                eventCount++;
+                document.getElementById('event-count').textContent = eventCount;
+            }
+
+            if (event.type === 'tool-use') {
+                toolCount++;
+                document.getElementById('tool-count').textContent = toolCount;
+            }
+
+            if (event.type === 'tool-error') {
+                errorCount++;
+                document.getElementById('error-count').textContent = errorCount;
+            }
+
+            // Handle input request
+            if (event.type === 'input-request') {
+                document.getElementById('waiting-indicator').classList.add('active');
+                document.getElementById('user-input').focus();
+            }
+
+            // Handle status change
+            if (event.type === 'status-change') {
+                const status = event.data.status;
+                console.log('Agent status:', status);
+
+                // Show ready prompt when waiting for initial input
+                if (status === 'waiting_for_input') {
+                    document.getElementById('ready-prompt').style.display = 'block';
+                    document.getElementById('user-input').focus();
+                } else {
+                    document.getElementById('ready-prompt').style.display = 'none';
+                }
+            }
+
+            // Handle system message about being ready
+            if (event.type === 'system' && event.data.text && event.data.text.includes('Ready!')) {
+                document.getElementById('ready-prompt').style.display = 'block';
+                document.getElementById('user-input').focus();
+            }
+
+            addEventToStream(event);
+        }
+
+        function addEventToStream(event) {
+            const eventDiv = document.createElement('div');
+
+            // Special styling for user messages
+            if (event.type === 'user-message') {
+                eventDiv.className = 'event system';
+                eventDiv.style.borderLeftColor = '#10b981';
+            } else {
+                eventDiv.className = `event ${event.type}`;
+            }
+
+            const icon = eventTypeIcons[event.type] || '📝';
+            const label = eventTypeLabels[event.type] || event.type;
+
+            const timestamp = new Date(event.timestamp).toLocaleTimeString();
+
+            let content = '';
+            if (typeof event.data === 'string') {
+                content = escapeHtml(event.data);
+            } else if (event.data.text) {
+                content = escapeHtml(event.data.text);
+            } else if (event.data.message) {
+                content = escapeHtml(event.data.message);
+            } else if (event.data.prompt) {
+                content = '⏳ ' + escapeHtml(event.data.prompt);
+            } else if (event.data.status) {
+                content = 'Status: ' + escapeHtml(event.data.status);
+            } else {
+                content = escapeHtml(JSON.stringify(event.data, null, 2));
+            }
+
+            eventDiv.innerHTML = `
+                <div class="event-header">
+                    <div class="event-type">${icon} ${label}</div>
+                    <div class="event-timestamp">${timestamp}</div>
+                </div>
+                <div class="event-content">${content}</div>
+            `;
+
+            streamContainer.appendChild(eventDiv);
+            streamContainer.scrollTop = streamContainer.scrollHeight;
+
+            // Remove loading message if it exists
+            const loading = streamContainer.querySelector('.loading');
+            if (loading) loading.remove();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function updateRuntime() {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            document.getElementById('runtime').textContent =
+                `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        // Connect to stream
+        connectToStream();
+
+        // Update runtime every second
+        setInterval(updateRuntime, 1000);
+
+        // Current pending approval
+        let pendingApproval = null;
+
+        // Set target directory
+        async function setDirectory() {
+            const input = document.getElementById('directory-path');
+            const directory = input.value.trim();
+
+            if (!directory) {
+                alert('Please enter a directory path');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/set_directory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ directory })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    addEventToStream({
+                        type: 'system',
+                        timestamp: new Date().toISOString(),
+                        data: { text: `Directory set to: ${directory}` }
+                    });
+                } else {
+                    const error = await response.json();
+                    alert('Failed to set directory: ' + (error.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Handle approval request from agent
+        function showApproval(request) {
+            pendingApproval = request;
+
+            document.getElementById('approval-title').textContent = request.title || 'Approval Required';
+            document.getElementById('approval-type').textContent = request.approval_type || 'action';
+            document.getElementById('approval-description').textContent = request.description || '';
+            document.getElementById('approval-details').textContent =
+                typeof request.details === 'string'
+                    ? request.details
+                    : JSON.stringify(request.details, null, 2);
+
+            document.getElementById('approval-modal').classList.add('active');
+        }
+
+        // Handle approval response
+        async function handleApproval(approved, modify = false) {
+            if (!pendingApproval) return;
+
+            let modifications = null;
+            if (modify) {
+                const userInput = prompt('Enter your modifications or comments:');
+                if (userInput === null) return; // User cancelled
+                modifications = { user_comment: userInput };
+            }
+
+            try {
+                const response = await fetch('/api/approval_response', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        request_id: pendingApproval.request_id,
+                        approved: approved,
+                        modifications: modifications
+                    })
+                });
+
+                if (response.ok) {
+                    addEventToStream({
+                        type: 'system',
+                        timestamp: new Date().toISOString(),
+                        data: { text: approved ? '✅ Action approved' : '❌ Action rejected' }
+                    });
+                }
+            } catch (error) {
+                console.error('Error sending approval:', error);
+            }
+
+            document.getElementById('approval-modal').classList.remove('active');
+            pendingApproval = null;
+        }
+
+        // Update subagent status
+        function updateSubagentStatus(agentName, active) {
+            const agentMap = {
+                'codebase_analyzer': 'sa-codebase',
+                'security_auditor': 'sa-security',
+                'dependency_auditor': 'sa-dependency',
+                'performance_analyzer': 'sa-performance',
+                'integration_tester': 'sa-integration',
+                'browser_tester': 'sa-browser',
+                'hallucination_detector': 'sa-hallucination',
+                'fix_generator': 'sa-fix',
+                'pr_manager': 'sa-pr'
+            };
+
+            const elementId = agentMap[agentName];
+            if (elementId) {
+                const element = document.getElementById(elementId);
+                if (active) {
+                    element.classList.add('active');
+                } else {
+                    element.classList.remove('active');
+                }
+            }
+        }
+
+        // Extended event handler for new event types
+        const originalHandleEvent = handleEvent;
+        handleEvent = function(event) {
+            // Handle approval requests
+            if (event.type === 'approval-request') {
+                showApproval(event.data);
+                return;
+            }
+
+            // Handle subagent status
+            if (event.type === 'subagent-start') {
+                updateSubagentStatus(event.data.agent, true);
+            } else if (event.type === 'subagent-end') {
+                updateSubagentStatus(event.data.agent, false);
+            }
+
+            // Handle agent state changes
+            if (event.type === 'status-change' && event.data.status) {
+                document.getElementById('agent-state').textContent = event.data.status;
+            }
+
+            // Call original handler
+            originalHandleEvent(event);
+        };
+
+        // Close modal on escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && pendingApproval) {
+                handleApproval(false);
+            }
+        });
+    </script>
+</body>
+</html>

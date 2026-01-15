@@ -33,10 +33,21 @@ def get_db_connection():
     """Create and cache database connection"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
+        conn.autocommit = True  # Prevent transaction issues
         return conn
     except Exception as e:
         st.error(f"Database connection failed: {str(e)}")
         return None
+
+
+def reset_db_connection():
+    """Reset database connection if in bad state"""
+    try:
+        conn = get_db_connection()
+        if conn and conn.closed == 0:
+            conn.rollback()  # Clear any failed transaction state
+    except Exception:
+        pass
 
 
 def get_user_campaigns(user_id: Optional[int] = None) -> List[Dict]:
@@ -153,19 +164,9 @@ def main():
         </style>
     """, unsafe_allow_html=True)
 
-    # Sidebar navigation
+    # Sidebar with quick stats
     with st.sidebar:
-        st.image("https://via.placeholder.com/200x60/1E3A8A/FFFFFF?text=Marketing+AI", use_column_width=True)
-        st.markdown("---")
-
-        # Navigation menu
-        page = st.radio(
-            "Navigation",
-            ["🏠 Dashboard", "✍️ Content Review", "🎨 Media Review", "📚 Asset Library",
-             "📊 Analytics", "🎯 Campaigns", "👤 Profile"],
-            label_visibility="collapsed"
-        )
-
+        st.image("https://via.placeholder.com/200x60/1E3A8A/FFFFFF?text=Marketing+AI")
         st.markdown("---")
 
         # Quick stats in sidebar
@@ -181,27 +182,8 @@ def main():
         st.markdown("---")
         st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    # Main content area
-    if "Dashboard" in page:
-        show_dashboard()
-    elif "Content Review" in page:
-        st.info("Loading Content Review page...")
-        st.markdown("Navigate to `pages/content_review.py` for full functionality")
-    elif "Media Review" in page:
-        st.info("Loading Media Review page...")
-        st.markdown("Navigate to `pages/media_review.py` for full functionality")
-    elif "Asset Library" in page:
-        st.info("Loading Asset Library page...")
-        st.markdown("Navigate to `pages/asset_library.py` for full functionality")
-    elif "Analytics" in page:
-        st.info("Loading Analytics page...")
-        st.markdown("Navigate to `pages/analytics.py` for full functionality")
-    elif "Campaigns" in page:
-        st.info("Loading Campaigns page...")
-        st.markdown("Navigate to `pages/campaigns.py` for full functionality")
-    elif "Profile" in page:
-        st.info("Loading Profile page...")
-        st.markdown("Navigate to `pages/onboarding.py` for full functionality")
+    # Show main dashboard
+    show_dashboard()
 
 
 def show_dashboard():
