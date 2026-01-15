@@ -326,12 +326,12 @@ docker-compose restart langchain_service streamlit_dashboard
 
 ### Ollama Model Not Found
 
-**Issue**: `model 'llama3:8b' not found`
+**Issue**: `model 'llama3.1:8b' not found`
 
 **Solution**:
 ```bash
 # Pull models manually
-docker exec ollama ollama pull llama3:8b
+docker exec ollama ollama pull llama3.1:8b
 docker exec ollama ollama pull mistral:7b
 
 # Verify
@@ -566,7 +566,7 @@ docker exec -it ollama ollama list
 - Update Docker images: `docker-compose pull && docker-compose up -d`
 - Backup databases
 - Review disk usage: `docker system df`
-- Update Ollama models: `docker exec ollama ollama pull llama3:8b`
+- Update Ollama models: `docker exec ollama ollama pull llama3.1:8b`
 
 ### Cleanup
 

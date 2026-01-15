@@ -1,0 +1,48 @@
+project:
+  name: "marketing-agent"
+  root_path: "C:/Users/jacob/marketing-agent"
+
+github:
+  token: "${GITHUB_TOKEN}"
+  owner: "Yaakovyitzchak1231"
+  repo: "marketing-agent"
+  base_branch: "main"
+  pr_branch_prefix: "code-testing-agent/"
+
+agent:
+  model: "claude-sonnet-4-5-20250929"
+  temperature: 0.1
+  max_turns: 50
+  permission_mode: "acceptEdits"
+
+testing:
+  run_unit_tests: true
+  test_timeout: 600
+  test_commands:
+    quick: "python tests/run_tests.py --quick"
+    docker: "docker-compose ps"
+
+analysis:
+  file_size_limit_mb: 5
+  include_patterns:
+    - "*.py"
+    - "*.yaml"
+    - "*.md"
+    - "*.yml"
+  exclude_patterns:
+    - "*.pyc"
+    - "__pycache__"
+    - ".git"
+    - "node_modules"
+    - "venv"
+    - "chroma-init"
+
+hallucination_detection:
+  focus_areas:
+    - "langchain-service/"
+    - "n8n-workflows/"
+  ai_components:
+    - name: "research_agent"
+      test_citations: true
+    - name: "content_agent"
+      test_fabrication: true

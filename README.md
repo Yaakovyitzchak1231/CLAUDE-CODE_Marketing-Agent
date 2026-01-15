@@ -101,7 +101,7 @@ docker-compose up -d
 # Wait 2-3 minutes for services to initialize
 
 # Pull Ollama models (required)
-docker exec -it ollama ollama pull llama3:8b
+docker exec -it ollama ollama pull llama3.1:8b
 docker exec -it ollama ollama pull mistral:7b
 
 # Initialize Chroma vector database
@@ -187,10 +187,10 @@ The system uses three PostgreSQL databases:
 - `engagement_metrics` - Analytics data
 
 ### Chroma Collections
-- `market_insights` - Vectorized research data
-- `competitor_content` - Competitor analysis embeddings
-- `user_preferences` - Personalization vectors
-- `content_library` - Historical content embeddings
+- `user_profiles` - User and audience profile embeddings
+- `content_library` - Historical content embeddings for RAG and similarity search
+- `market_segments` - Audience segment embeddings for targeting
+- `competitor_content` - Competitor content embeddings for analysis
 
 ## Configuration
 

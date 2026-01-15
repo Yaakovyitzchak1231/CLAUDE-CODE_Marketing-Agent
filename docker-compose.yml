@@ -123,7 +123,7 @@ services:
 
   # Vector Database - Chroma
   chroma:
-    image: ghcr.io/chroma-core/chroma:latest
+    image: ghcr.io/chroma-core/chroma:0.5.23
     container_name: chroma
     restart: unless-stopped
     ports:

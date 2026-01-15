@@ -88,7 +88,7 @@ You should see all services with status "Up" or "running".
 **Required step - pull the AI models:**
 
 ```cmd
-docker exec ollama ollama pull llama3:8b
+docker exec ollama ollama pull llama3.1:8b
 ```
 
 Wait for download to complete (this is ~4.7GB, may take 5-15 minutes).
@@ -434,7 +434,7 @@ Start-Sleep -Seconds 120
 
 # Pull models
 Write-Host "Pulling Ollama models (this may take 10-20 minutes)..."
-docker exec ollama ollama pull llama3:8b
+docker exec ollama ollama pull llama3.1:8b
 
 # Initialize Chroma
 docker exec langchain_service python /app/chroma-init/init_collections.py

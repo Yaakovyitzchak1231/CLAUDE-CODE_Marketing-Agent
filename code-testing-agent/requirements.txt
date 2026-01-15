@@ -1,0 +1,21 @@
+# Core SDK
+claude-agent-sdk==0.1.19
+
+# GitHub Integration
+PyGithub==2.1.1
+requests==2.31.0
+
+# Code Analysis
+radon==6.0.1
+ast-comments==1.1.2
+
+# Testing
+pytest==7.4.4
+
+# Configuration & Logging
+pyyaml==6.0.1
+structlog==24.1.0
+rich==13.7.0
+
+# Utilities
+python-dotenv==1.0.0

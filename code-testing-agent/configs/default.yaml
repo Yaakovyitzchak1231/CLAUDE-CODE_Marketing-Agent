@@ -1,0 +1,35 @@
+project:
+  name: "code-testing-agent"
+  root_path: "."
+
+github:
+  token: "${GITHUB_TOKEN}"
+  owner: ""  # To be configured per project
+  repo: ""
+  base_branch: "main"
+  pr_branch_prefix: "code-testing-agent/"
+
+agent:
+  model: "claude-sonnet-4-5-20250929"
+  temperature: 0.1
+  max_turns: 50
+  permission_mode: "acceptEdits"  # Auto-approve safe edits
+
+testing:
+  run_unit_tests: true
+  test_timeout: 600
+  test_commands:
+    python: "pytest -v"
+
+analysis:
+  file_size_limit_mb: 5
+  include_patterns:
+    - "*.py"
+    - "*.yaml"
+    - "*.md"
+  exclude_patterns:
+    - "*.pyc"
+    - "__pycache__"
+    - ".git"
+    - "node_modules"
+    - "venv"
