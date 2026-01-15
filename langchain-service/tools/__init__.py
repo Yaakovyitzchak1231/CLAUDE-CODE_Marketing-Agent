@@ -32,14 +32,14 @@ from .trends_tool import (
     compare_market_interest
 )
 
-from .search_tool import SearchTool
-from .scraping_tool import ScrapingTool
-from .dalle_tool import DalleTool
+from .search_tool import SearXNGTool as SearchTool
+from .scraping_tool import WebScrapingTool as ScrapingTool
+from .dalle_tool import DallETool as DalleTool
 from .midjourney_tool import MidjourneyTool
 from .runway_tool import RunwayTool
 from .pika_tool import PikaTool
 from .ffmpeg_tool import FFmpegTool
-from .huggingface_models import HuggingFaceModels
+from .huggingface_models import HuggingFaceModelManager as HuggingFaceModels
 
 __all__ = [
     # Government Data
