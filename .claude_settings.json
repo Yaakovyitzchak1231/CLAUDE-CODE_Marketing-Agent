@@ -1,0 +1,39 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(C:\\Users\\jacob\\marketing-agent\\.auto-claude\\worktrees\\tasks\\003-add-loading-spinner-and-optimistic-ui-feedback-for/**)",
+      "Write(C:\\Users\\jacob\\marketing-agent\\.auto-claude\\worktrees\\tasks\\003-add-loading-spinner-and-optimistic-ui-feedback-for/**)",
+      "Edit(C:\\Users\\jacob\\marketing-agent\\.auto-claude\\worktrees\\tasks\\003-add-loading-spinner-and-optimistic-ui-feedback-for/**)",
+      "Glob(C:\\Users\\jacob\\marketing-agent\\.auto-claude\\worktrees\\tasks\\003-add-loading-spinner-and-optimistic-ui-feedback-for/**)",
+      "Grep(C:\\Users\\jacob\\marketing-agent\\.auto-claude\\worktrees\\tasks\\003-add-loading-spinner-and-optimistic-ui-feedback-for/**)",
+      "Read(C:\\Users\\jacob\\marketing-agent\\.auto-claude\\worktrees\\tasks\\003-add-loading-spinner-and-optimistic-ui-feedback-for\\.auto-claude\\specs\\003-add-loading-spinner-and-optimistic-ui-feedback-for/**)",
+      "Write(C:\\Users\\jacob\\marketing-agent\\.auto-claude\\worktrees\\tasks\\003-add-loading-spinner-and-optimistic-ui-feedback-for\\.auto-claude\\specs\\003-add-loading-spinner-and-optimistic-ui-feedback-for/**)",
+      "Edit(C:\\Users\\jacob\\marketing-agent\\.auto-claude\\worktrees\\tasks\\003-add-loading-spinner-and-optimistic-ui-feedback-for\\.auto-claude\\specs\\003-add-loading-spinner-and-optimistic-ui-feedback-for/**)",
+      "Read(C:\\Users\\jacob\\marketing-agent\\.auto-claude/**)",
+      "Write(C:\\Users\\jacob\\marketing-agent\\.auto-claude/**)",
+      "Edit(C:\\Users\\jacob\\marketing-agent\\.auto-claude/**)",
+      "Glob(C:\\Users\\jacob\\marketing-agent\\.auto-claude/**)",
+      "Grep(C:\\Users\\jacob\\marketing-agent\\.auto-claude/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__get-library-docs(*)",
+      "mcp__graphiti-memory__search_nodes(*)",
+      "mcp__graphiti-memory__search_facts(*)",
+      "mcp__graphiti-memory__add_episode(*)",
+      "mcp__graphiti-memory__get_episodes(*)",
+      "mcp__graphiti-memory__get_entity_edge(*)"
+    ]
+  }
+}
