@@ -519,20 +519,21 @@ def show_edit_tab(draft: Dict):
     with col4:
         if st.button("💾 Save Draft", use_container_width=True):
             # Update draft in database with edited content
-            conn = get_db_connection()
-            if conn:
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("""
-                            UPDATE content_drafts
-                            SET content = %s, updated_at = NOW()
-                            WHERE id = %s
-                        """, (st.session_state['edited_content'], draft['id']))
+            with st.spinner("Saving draft..."):
+                conn = get_db_connection()
+                if conn:
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE content_drafts
+                                SET content = %s, updated_at = NOW()
+                                WHERE id = %s
+                            """, (st.session_state['edited_content'], draft['id']))
 
-                        conn.commit()
-                        st.success("💾 Draft saved!")
-                except Exception as e:
-                    st.error(f"Error saving draft: {str(e)}")
+                            conn.commit()
+                            st.success("💾 Draft saved!")
+                    except Exception as e:
+                        st.error(f"Error saving draft: {str(e)}")
 
 
 def show_versions_tab(draft: Dict):
