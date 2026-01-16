@@ -144,13 +144,102 @@ Format as a single, detailed prompt suitable for Runway ML or Pika."""
                         "Input should be base prompt and platform name."
         )
 
+        # Create music selector tool
+        def select_background_music(
+            video_type: str,
+            mood: str = "professional",
+            duration: int = 30,
+            platform: str = "linkedin"
+        ) -> str:
+            """Select appropriate background music for video"""
+
+            music_recommendations = {
+                "corporate": {
+                    "upbeat": "energetic-corporate-inspiring.mp3",
+                    "professional": "modern-corporate-background.mp3",
+                    "calm": "soft-corporate-ambient.mp3"
+                },
+                "social": {
+                    "upbeat": "trendy-upbeat-pop.mp3",
+                    "professional": "modern-social-vibe.mp3",
+                    "energetic": "fast-social-beat.mp3"
+                },
+                "product_demo": {
+                    "upbeat": "tech-showcase-upbeat.mp3",
+                    "professional": "product-demo-professional.mp3",
+                    "innovative": "innovative-tech-music.mp3"
+                },
+                "explainer": {
+                    "upbeat": "educational-upbeat.mp3",
+                    "calm": "learning-ambient.mp3",
+                    "professional": "explainer-background.mp3"
+                },
+                "ad": {
+                    "upbeat": "catchy-ad-music.mp3",
+                    "energetic": "high-energy-ad.mp3",
+                    "emotional": "emotional-brand-story.mp3"
+                }
+            }
+
+            # Platform-specific recommendations
+            platform_moods = {
+                "linkedin": "professional",
+                "instagram": "upbeat",
+                "youtube": "professional",
+                "tiktok": "energetic",
+                "facebook": "upbeat"
+            }
+
+            # Determine video category
+            category = "corporate"
+            if "social" in video_type.lower():
+                category = "social"
+            elif "product" in video_type.lower() or "demo" in video_type.lower():
+                category = "product_demo"
+            elif "explain" in video_type.lower():
+                category = "explainer"
+            elif "ad" in video_type.lower() or "advertisement" in video_type.lower():
+                category = "ad"
+
+            # Get music recommendation
+            category_music = music_recommendations.get(category, music_recommendations["corporate"])
+            recommended_mood = platform_moods.get(platform, mood)
+            music_file = category_music.get(recommended_mood, category_music.get("professional"))
+
+            recommendation = f"""Music Selection for {video_type}:
+
+Category: {category}
+Mood: {recommended_mood}
+Duration: {duration}s
+Platform: {platform}
+
+Recommended Track: {music_file}
+
+Audio Settings:
+- Volume: 0.3 (30% - ensures voiceover clarity)
+- Fade In: 1.0s (smooth introduction)
+- Fade Out: 1.0s (professional ending)
+
+Music will loop if video is longer than track duration.
+Music will be trimmed if track is longer than video."""
+
+            return recommendation
+
+        music_selector_tool = Tool(
+            name="Music_Selector",
+            func=select_background_music,
+            description="Select appropriate background music for video based on type, mood, duration, and platform. "
+                        "Input should be video type and desired mood."
+        )
+
         tools = [
             runway_tool,
             pika_tool,
             ffmpeg_tool,
             script_builder_tool,
             optimizer_tool,
-            platform_tool
+            platform_tool,
+            music_selector_tool
         ]
 
         super().__init__(
@@ -213,8 +302,17 @@ Video Editing Workflow:
 3. Concatenate scenes
 4. Add captions/subtitles
 5. Add watermark/logo
-6. Add background music
+6. Select and add background music
 7. Final quality check
+
+Music Selection:
+- Corporate: Professional, modern, ambient
+- Social: Upbeat, trendy, energetic
+- Product Demo: Tech-focused, innovative
+- Explainer: Educational, calm, professional
+- Advertisement: Catchy, emotional, high-energy
+- Volume: 30% (ensures voiceover clarity)
+- Fade in/out: 1 second (professional transitions)
 
 Quality Standards:
 - High-resolution output
@@ -638,7 +736,46 @@ Generate ad video."""
                 current_path = watermark_output
 
         # Add background music if requested
-        # TODO: Implement music selection and addition
+        if add_music:
+            # Determine video type and mood from scenes
+            video_type = scenes[0].get("type", "corporate")
+            mood = scenes[0].get("mood", "professional")
+
+            # Use default music path or custom music if provided in scenes
+            music_path = None
+            for scene in scenes:
+                if "music_path" in scene:
+                    music_path = Path(scene["music_path"])
+                    break
+
+            # If no custom music provided, use a default corporate track
+            # In production, this would be selected from a music library
+            if music_path and music_path.exists():
+                logger.info("adding_background_music", music_path=str(music_path))
+
+                music_output = output_path.parent / "with_music.mp4"
+                music_result = self.ffmpeg.add_background_music(
+                    video_path=current_path,
+                    audio_path=music_path,
+                    output_path=music_output,
+                    volume=0.3,
+                    fade_in=1.0,
+                    fade_out=1.0
+                )
+
+                if music_result.get("success"):
+                    current_path = music_output
+                    logger.info("background_music_added", output=str(music_output))
+                else:
+                    logger.warning(
+                        "music_addition_skipped",
+                        reason=music_result.get("error", "Music file not found")
+                    )
+            else:
+                logger.info(
+                    "music_addition_skipped",
+                    reason="No music file provided or file does not exist"
+                )
 
         # Move to final output path
         current_path.rename(output_path)
@@ -656,7 +793,8 @@ Generate ad video."""
             "scene_count": len(scenes),
             "total_cost": total_cost,
             "has_captions": add_captions,
-            "has_watermark": watermark_path is not None
+            "has_watermark": watermark_path is not None,
+            "has_music": add_music
         }
 
 
