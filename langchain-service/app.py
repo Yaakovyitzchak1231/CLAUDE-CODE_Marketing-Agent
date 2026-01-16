@@ -30,6 +30,9 @@ from chains.video_script_builder import create_video_script_builder
 # Tool and utility imports
 from config import settings, create_llm
 
+# API route imports
+from api.brand_voice import router as brand_voice_router
+
 logger = structlog.get_logger()
 
 # Initialize FastAPI app
@@ -49,6 +52,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register API routers
+app.include_router(brand_voice_router)
 
 # Initialize LLM (OpenAI if configured, else Ollama)
 llm = create_llm()
