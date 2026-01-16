@@ -536,7 +536,9 @@ Be specific, quantitative where possible, and actionable."""
 
     def analyze_market_opportunity(
         self,
-        market_description: str,
+        product_description: Optional[str] = None,
+        target_market: Optional[str] = None,
+        market_description: Optional[str] = None,
         geography: Optional[str] = None,
         store_results: bool = True
     ) -> Dict[str, Any]:
@@ -544,16 +546,28 @@ Be specific, quantitative where possible, and actionable."""
         Comprehensive market opportunity analysis
 
         Args:
-            market_description: Description of target market
+            product_description: Description of the product/service being offered
+            target_market: Target market segment to analyze
+            market_description: Description of target market (backward compatible)
             geography: Geographic focus (optional)
             store_results: Whether to store in vector DB
 
         Returns:
             Dict with market analysis
         """
+        # Build context from available parameters
+        context_parts = []
+        if product_description:
+            context_parts.append(f"Product/Service: {product_description}")
+        if target_market:
+            context_parts.append(f"Target Market: {target_market}")
+        if market_description:
+            context_parts.append(f"Market: {market_description}")
+
+        market_context = " | ".join(context_parts) if context_parts else "general market"
         geo_context = f" in {geography}" if geography else ""
 
-        prompt = f"""Conduct a comprehensive market opportunity analysis for: {market_description}{geo_context}
+        prompt = f"""Conduct a comprehensive market opportunity analysis for: {market_context}{geo_context}
 
 Analyze:
 1. Market Overview

@@ -26,6 +26,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import math
+import httpx
 
 # Page configuration
 st.set_page_config(
@@ -42,6 +43,227 @@ DB_CONFIG = {
     "user": os.getenv("POSTGRES_USER", "marketing_user"),
     "password": os.getenv("POSTGRES_PASSWORD", "marketing_pass")
 }
+
+# External service URLs
+SEARXNG_URL = os.getenv("SEARXNG_URL", "http://searxng:8080")
+LANGCHAIN_SERVICE_URL = os.getenv("LANGCHAIN_SERVICE_URL", "http://langchain_service:8001")
+
+
+# ============================================================================
+# DATA FETCHING FUNCTIONS - Real API Calls
+# ============================================================================
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def fetch_trend_data(topic: str) -> Dict[str, Any]:
+    """
+    Fetch real trend data from available sources.
+
+    Uses SearXNG for news mentions and web data.
+    Returns structured data for trend scoring.
+    """
+    data_sources = {}
+
+    # Fetch news mentions via SearXNG
+    try:
+        news_data = _fetch_news_mentions(topic)
+        data_sources['news_mentions'] = news_data
+    except Exception as e:
+        st.warning(f"Could not fetch news data: {str(e)}")
+        data_sources['news_mentions'] = _get_default_news_data()
+
+    # Fetch social/web mentions
+    try:
+        social_data = _fetch_social_data(topic)
+        data_sources['social_sentiment'] = social_data
+    except Exception as e:
+        data_sources['social_sentiment'] = _get_default_social_data()
+
+    # Use historical data from database if available
+    try:
+        historical = _fetch_historical_trend_data(topic)
+        if historical:
+            data_sources['google_trends'] = historical.get('google_trends', _get_default_google_trends())
+            data_sources['job_postings'] = historical.get('job_postings', _get_default_job_data())
+            data_sources['gov_employment'] = historical.get('gov_employment', _get_default_employment_data())
+        else:
+            data_sources['google_trends'] = _get_default_google_trends()
+            data_sources['job_postings'] = _get_default_job_data()
+            data_sources['gov_employment'] = _get_default_employment_data()
+    except Exception:
+        data_sources['google_trends'] = _get_default_google_trends()
+        data_sources['job_postings'] = _get_default_job_data()
+        data_sources['gov_employment'] = _get_default_employment_data()
+
+    return data_sources
+
+
+def _fetch_news_mentions(topic: str) -> Dict[str, int]:
+    """Fetch news mentions from SearXNG"""
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"{SEARXNG_URL}/search",
+                params={
+                    "q": topic,
+                    "format": "json",
+                    "categories": "news",
+                    "time_range": "month"
+                }
+            )
+
+            if response.status_code == 200:
+                results = response.json().get("results", [])
+
+                # Categorize by source credibility
+                tier1 = 0  # Gov, academic
+                tier2 = 0  # Major business
+                tier3 = 0  # Industry pubs
+                tier4 = 0  # General
+
+                tier1_domains = ['gov', 'edu', 'reuters', 'bloomberg']
+                tier2_domains = ['wsj', 'ft.com', 'forbes', 'fortune', 'businessinsider']
+                tier3_domains = ['techcrunch', 'wired', 'zdnet', 'cnet']
+
+                for result in results:
+                    url = result.get('url', '').lower()
+                    if any(d in url for d in tier1_domains):
+                        tier1 += 1
+                    elif any(d in url for d in tier2_domains):
+                        tier2 += 1
+                    elif any(d in url for d in tier3_domains):
+                        tier3 += 1
+                    else:
+                        tier4 += 1
+
+                return {
+                    'tier1_authoritative': tier1,
+                    'tier2_business_news': tier2,
+                    'tier3_industry_pubs': tier3,
+                    'tier4_general_news': tier4
+                }
+    except Exception:
+        pass
+
+    return _get_default_news_data()
+
+
+def _fetch_social_data(topic: str) -> Dict[str, Any]:
+    """Fetch social/web data from SearXNG"""
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"{SEARXNG_URL}/search",
+                params={
+                    "q": topic,
+                    "format": "json",
+                    "categories": "general"
+                }
+            )
+
+            if response.status_code == 200:
+                results = response.json().get("results", [])
+                mention_volume = len(results)
+
+                # Simple sentiment heuristic based on result count
+                return {
+                    'avg_sentiment': 0.35 if mention_volume > 20 else 0.25,
+                    'mention_volume': mention_volume * 50,  # Scale estimate
+                    'positive_ratio': 0.65 if mention_volume > 10 else 0.55
+                }
+    except Exception:
+        pass
+
+    return _get_default_social_data()
+
+
+def _fetch_historical_trend_data(topic: str) -> Optional[Dict[str, Any]]:
+    """Fetch historical trend data from database"""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT data FROM trend_data
+                WHERE topic ILIKE %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (f"%{topic}%",))
+            result = cur.fetchone()
+            conn.close()
+            if result:
+                return result['data'] if isinstance(result['data'], dict) else json.loads(result['data'])
+    except Exception:
+        pass
+    return None
+
+
+def _get_default_news_data() -> Dict[str, int]:
+    """Default news data when API unavailable"""
+    return {
+        'tier1_authoritative': 0,
+        'tier2_business_news': 0,
+        'tier3_industry_pubs': 0,
+        'tier4_general_news': 0
+    }
+
+
+def _get_default_social_data() -> Dict[str, Any]:
+    """Default social data when API unavailable"""
+    return {
+        'avg_sentiment': 0.0,
+        'mention_volume': 0,
+        'positive_ratio': 0.5
+    }
+
+
+def _get_default_google_trends() -> Dict[str, Any]:
+    """Default Google Trends data when unavailable"""
+    return {
+        'current_interest': 0,
+        'avg_interest': 0,
+        'peak_interest': 0,
+        'trend_direction': 'unknown'
+    }
+
+
+def _get_default_job_data() -> Dict[str, Any]:
+    """Default job posting data when unavailable"""
+    return {
+        'total_postings': 0,
+        'growth_pct': 0.0,
+        'avg_salary': 0
+    }
+
+
+def _get_default_employment_data() -> Dict[str, Any]:
+    """Default employment data when unavailable"""
+    return {
+        'growth_rate_pct': 0.0,
+        'total_employed': 0,
+        'industry_share': 0.0
+    }
+
+
+def _get_previous_trend_score(topic: str) -> float:
+    """Fetch previous trend score from database for momentum calculation"""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Get score from ~30 days ago
+            cur.execute("""
+                SELECT trend_score FROM trend_analysis
+                WHERE topic ILIKE %s
+                AND created_at < NOW() - INTERVAL '7 days'
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (f"%{topic}%",))
+            result = cur.fetchone()
+            conn.close()
+            if result and result.get('trend_score'):
+                return float(result['trend_score'])
+    except Exception:
+        pass
+    # Return baseline score if no historical data
+    return 50.0
 
 
 # ============================================================================
@@ -693,44 +915,27 @@ def show_trend_analysis():
         st.markdown("<br>", unsafe_allow_html=True)
         analyze_clicked = st.button("Analyze Trend", type="primary", use_container_width=True)
 
-    # Demo data sources (in production, these would come from actual APIs)
-    demo_data_sources = {
-        'google_trends': {
-            'current_interest': 78,
-            'avg_interest': 65,
-            'peak_interest': 100,
-            'trend_direction': 'rising'
-        },
-        'gov_employment': {
-            'growth_rate_pct': 4.2,
-            'total_employed': 125000,
-            'industry_share': 2.3
-        },
-        'news_mentions': {
-            'tier1_authoritative': 3,
-            'tier2_business_news': 12,
-            'tier3_industry_pubs': 28,
-            'tier4_general_news': 45
-        },
-        'job_postings': {
-            'total_postings': 1250,
-            'growth_pct': 15.5,
-            'avg_salary': 95000
-        },
-        'social_sentiment': {
-            'avg_sentiment': 0.35,
-            'mention_volume': 5200,
-            'positive_ratio': 0.68
-        }
-    }
-
     if analyze_clicked and trend_topic:
-        with st.spinner("Analyzing trend data..."):
-            # Calculate trend score using deterministic algorithm
-            result = calculate_trend_score(trend_topic, demo_data_sources)
+        with st.spinner("Fetching trend data from live sources..."):
+            # Fetch real data from available sources (SearXNG, database, etc.)
+            data_sources = fetch_trend_data(trend_topic)
 
-            # Calculate momentum (demo: 30 days ago score was 58)
-            previous_score = 58.0
+            # Show data source status
+            has_real_data = any(
+                data_sources.get(key, {}).get('tier1_authoritative', 0) > 0 or
+                data_sources.get(key, {}).get('mention_volume', 0) > 0
+                for key in ['news_mentions', 'social_sentiment']
+            )
+
+            if not has_real_data:
+                st.info("⚠️ Limited data available. Results are based on available sources. For more accurate analysis, ensure SearXNG service is running.")
+
+        with st.spinner("Calculating trend score..."):
+            # Calculate trend score using deterministic algorithm
+            result = calculate_trend_score(trend_topic, data_sources)
+
+            # Fetch previous score from database for momentum calculation
+            previous_score = _get_previous_trend_score(trend_topic)
             momentum = calculate_momentum(result['trend_score'], previous_score)
 
             # Display results

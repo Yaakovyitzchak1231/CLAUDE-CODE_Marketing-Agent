@@ -494,27 +494,32 @@ def show_profile_details(profile_id: str):
                     profile['example_content']
                 )
 
-                if result:
-                    # Update with mock analysis for demo
-                    mock_analysis = {
-                        "tone": "Professional",
-                        "formality": "Formal",
-                        "sentiment": "Positive",
-                        "vocabulary_level": "Advanced",
-                        "sentence_structure": "Complex",
-                        "perspective": "First Person Plural",
-                        "key_phrases": ["innovative", "solution", "cutting-edge"],
-                        "avg_sentence_length": 18,
-                        "readability_score": 65
+                if result and isinstance(result, dict):
+                    # Use actual API response for analysis
+                    analysis_data = result.get('analysis', result)
+
+                    # Ensure required fields have defaults if not present
+                    voice_analysis = {
+                        "tone": analysis_data.get("tone", "Not analyzed"),
+                        "formality": analysis_data.get("formality", "Not analyzed"),
+                        "sentiment": analysis_data.get("sentiment", "Neutral"),
+                        "vocabulary_level": analysis_data.get("vocabulary_level", "Standard"),
+                        "sentence_structure": analysis_data.get("sentence_structure", "Mixed"),
+                        "perspective": analysis_data.get("perspective", "Third Person"),
+                        "key_phrases": analysis_data.get("key_phrases", []),
+                        "avg_sentence_length": analysis_data.get("avg_sentence_length", 0),
+                        "readability_score": analysis_data.get("readability_score", 0)
                     }
 
-                    if update_brand_voice_analysis(str(profile['id']), mock_analysis):
+                    if update_brand_voice_analysis(str(profile['id']), voice_analysis):
                         st.success("Analysis complete!")
                         st.rerun()
                     else:
                         st.error("Failed to save analysis")
-                else:
+                elif result:
                     st.warning("Analysis queued - check back in a moment")
+                else:
+                    st.error("Failed to start analysis - please try again")
 
 
 if __name__ == "__main__":

@@ -211,6 +211,33 @@ services:
     networks:
       - marketing_network
 
+  # Publishing Service
+  publishing_service:
+    build:
+      context: ./publishing-service
+      dockerfile: Dockerfile
+    container_name: publishing_service
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LINKEDIN_ACCESS_TOKEN=${LINKEDIN_ACCESS_TOKEN}
+      - WORDPRESS_URL=${WORDPRESS_URL}
+      - WORDPRESS_USERNAME=${WORDPRESS_USERNAME}
+      - WORDPRESS_PASSWORD=${WORDPRESS_PASSWORD}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+    volumes:
+      - ./publishing-service:/app
+    depends_on:
+      - redis
+    networks:
+      - marketing_network
+
   # ==================== ANALYTICS ====================
   # MariaDB for Matomo (Matomo's official image doesn't support PostgreSQL)
   matomo_db:

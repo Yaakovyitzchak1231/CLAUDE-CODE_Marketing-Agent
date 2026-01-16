@@ -89,11 +89,12 @@ class CostScorer:
     }
 
     # Budget thresholds (percentage of monthly budget)
+    # Thresholds define the UPPER bound of each zone
     BUDGET_THRESHOLDS = {
         'safe': 0.50,          # Under 50% - safe zone
-        'warning': 0.75,       # 50-75% - warning zone
-        'critical': 0.90,      # 75-90% - critical zone
-        'exceeded': 1.00,      # Over 90% - exceeded zone
+        'warning': 0.50,       # 50% threshold - warning starts here
+        'critical': 0.75,      # 75% threshold - critical starts here
+        'exceeded': 0.90,      # 90% threshold - exceeded starts here
     }
 
     def __init__(

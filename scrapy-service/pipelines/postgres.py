@@ -108,11 +108,16 @@ class PostgreSQLPipeline:
         conn = self.pool.getconn()
         cursor = conn.cursor()
 
+        # Enable UUID extension
+        cursor.execute("""
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        """)
+
         # Competitor pages table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS competitor_pages (
-                id SERIAL PRIMARY KEY,
-                competitor_id INTEGER NOT NULL,
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                competitor_id UUID NOT NULL,
                 url TEXT NOT NULL UNIQUE,
                 title TEXT,
                 content TEXT,
@@ -140,8 +145,8 @@ class PostgreSQLPipeline:
         # Blog posts table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS competitor_blog_posts (
-                id SERIAL PRIMARY KEY,
-                competitor_id INTEGER NOT NULL,
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                competitor_id UUID NOT NULL,
                 url TEXT NOT NULL UNIQUE,
                 title TEXT,
                 content TEXT,
@@ -168,8 +173,8 @@ class PostgreSQLPipeline:
         # Pricing table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS competitor_pricing (
-                id SERIAL PRIMARY KEY,
-                competitor_id INTEGER NOT NULL,
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                competitor_id UUID NOT NULL,
                 url TEXT NOT NULL,
                 title TEXT,
                 pricing_tiers JSONB,
@@ -186,8 +191,8 @@ class PostgreSQLPipeline:
         # Products table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS competitor_products (
-                id SERIAL PRIMARY KEY,
-                competitor_id INTEGER NOT NULL,
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                competitor_id UUID NOT NULL,
                 url TEXT NOT NULL UNIQUE,
                 title TEXT,
                 content TEXT,

@@ -40,7 +40,7 @@ def get_db_connection():
         return None
 
 
-def get_campaigns(user_id: Optional[int] = None, status: Optional[str] = None) -> List[Dict]:
+def get_campaigns(user_id: Optional[str] = None, status: Optional[str] = None) -> List[Dict]:
     """Fetch campaigns with filters"""
     conn = get_db_connection()
     if not conn:
@@ -76,7 +76,7 @@ def get_campaigns(user_id: Optional[int] = None, status: Optional[str] = None) -
         return []
 
 
-def get_campaign_details(campaign_id: int) -> Optional[Dict]:
+def get_campaign_details(campaign_id: str) -> Optional[Dict]:
     """Get detailed campaign information"""
     conn = get_db_connection()
     if not conn:
@@ -104,7 +104,7 @@ def get_campaign_details(campaign_id: int) -> Optional[Dict]:
         return None
 
 
-def get_campaign_content(campaign_id: int, status: Optional[str] = None) -> List[Dict]:
+def get_campaign_content(campaign_id: str, status: Optional[str] = None) -> List[Dict]:
     """Get content drafts for a campaign"""
     conn = get_db_connection()
     if not conn:
@@ -137,7 +137,7 @@ def get_campaign_content(campaign_id: int, status: Optional[str] = None) -> List
         return []
 
 
-def get_brand_voice_profiles(campaign_id: Optional[int] = None) -> List[Dict]:
+def get_brand_voice_profiles(campaign_id: Optional[str] = None) -> List[Dict]:
     """Fetch brand voice profiles, optionally filtered by campaign"""
     conn = get_db_connection()
     if not conn:
@@ -184,7 +184,7 @@ def get_brand_voice_profile(profile_id: str) -> Optional[Dict]:
 
 
 def create_campaign(name: str, target_audience: str, branding_json: Dict,
-                   user_id: int = 1, brand_voice_profile_id: Optional[str] = None) -> Optional[int]:
+                   user_id: str = "1", brand_voice_profile_id: Optional[str] = None) -> Optional[str]:
     """Create a new campaign"""
     conn = get_db_connection()
     if not conn:
@@ -207,7 +207,7 @@ def create_campaign(name: str, target_audience: str, branding_json: Dict,
         return None
 
 
-def update_campaign(campaign_id: int, name: str, target_audience: str,
+def update_campaign(campaign_id: str, name: str, target_audience: str,
                    branding_json: Dict, status: str, brand_voice_profile_id: Optional[str] = None) -> bool:
     """Update an existing campaign"""
     conn = get_db_connection()
@@ -230,7 +230,7 @@ def update_campaign(campaign_id: int, name: str, target_audience: str,
         return False
 
 
-def delete_campaign(campaign_id: int) -> bool:
+def delete_campaign(campaign_id: str) -> bool:
     """Delete a campaign and all associated content"""
     conn = get_db_connection()
     if not conn:
@@ -355,7 +355,7 @@ def render_campaign_card(campaign: Dict):
         st.markdown("---")
 
 
-def show_campaign_details(campaign_id: int):
+def show_campaign_details(campaign_id: str):
     """Show detailed view of a campaign"""
 
     # Back button
@@ -660,7 +660,7 @@ def show_create_campaign_form():
                 st.error("Failed to create campaign")
 
 
-def show_edit_campaign_form(campaign_id: int):
+def show_edit_campaign_form(campaign_id: str):
     """Show form to edit an existing campaign"""
 
     # Fetch campaign

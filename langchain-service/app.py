@@ -172,6 +172,24 @@ class VideoScriptRequest(BaseModel):
     style: str = Field(default="professional", description="Visual style")
 
 
+class VectorEmbeddingsSearchRequest(BaseModel):
+    collection_name: str = Field(..., description="Name of the vector collection")
+    query: str = Field(..., description="Search query text")
+    k: int = Field(default=5, description="Number of results to return")
+    filter: Optional[Dict[str, Any]] = Field(default=None, description="Metadata filter")
+
+
+class VectorEmbeddingsAddRequest(BaseModel):
+    collection_name: str = Field(..., description="Name of the vector collection")
+    texts: List[str] = Field(..., description="Texts to embed and store")
+    metadatas: Optional[List[Dict[str, Any]]] = Field(default=None, description="Metadata for each text")
+    chunk_strategy: str = Field(default="recursive", description="Chunking strategy: none, recursive, semantic")
+
+
+class GrammarCheckRequest(BaseModel):
+    text: str = Field(..., description="Text to check for grammar issues")
+
+
 class OrchestrationRequest(BaseModel):
     """Request for unified orchestration endpoint."""
     task_type: str = Field(..., description="Task type: content_blog, content_linkedin, campaign_plan, campaign_calendar, research_market, research_competitor, research_trends")
@@ -586,6 +604,168 @@ async def run_video_script_builder(request: VideoScriptRequest):
 
     except Exception as e:
         logger.error("video_script_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# SEO Optimizer alias endpoint (for n8n workflows)
+@app.post("/chains/seo-optimizer")
+async def run_seo_optimizer_alias(request: SEOOptimizationRequest):
+    """
+    Alias for /chains/seo endpoint
+
+    Used by n8n workflows for SEO optimization
+    """
+    return await run_seo_optimization(request)
+
+
+# =============================================================================
+# VECTOR EMBEDDINGS ENDPOINTS
+# =============================================================================
+
+@app.post("/storage/vector-embeddings/search")
+async def search_vector_embeddings(request: VectorEmbeddingsSearchRequest):
+    """
+    Search vector embeddings in a collection
+
+    Used by n8n workflows to find similar content
+    """
+    try:
+        logger.info(
+            "vector_search_request",
+            collection=request.collection_name,
+            query=request.query[:50]
+        )
+
+        # Import vector store utilities
+        from storage.vector_store import get_vector_store
+
+        vector_store = get_vector_store(request.collection_name)
+
+        # Perform similarity search
+        results = vector_store.similarity_search_with_score(
+            query=request.query,
+            k=request.k,
+            filter=request.filter
+        )
+
+        # Format results
+        formatted_results = [
+            {
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "score": float(score)
+            }
+            for doc, score in results
+        ]
+
+        return JSONResponse(content={
+            "success": True,
+            "collection": request.collection_name,
+            "query": request.query,
+            "results": formatted_results,
+            "count": len(formatted_results),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.error("vector_search_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/storage/vector-embeddings/add")
+async def add_vector_embeddings(request: VectorEmbeddingsAddRequest):
+    """
+    Add texts to vector embeddings collection
+
+    Used by n8n workflows to store content embeddings
+    """
+    try:
+        logger.info(
+            "vector_add_request",
+            collection=request.collection_name,
+            text_count=len(request.texts)
+        )
+
+        # Import vector store utilities
+        from storage.vector_store import get_vector_store
+
+        vector_store = get_vector_store(request.collection_name)
+
+        # Add texts with optional metadata
+        ids = vector_store.add_texts(
+            texts=request.texts,
+            metadatas=request.metadatas
+        )
+
+        return JSONResponse(content={
+            "success": True,
+            "collection": request.collection_name,
+            "added_count": len(ids),
+            "ids": ids,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.error("vector_add_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# TOOLS ENDPOINTS
+# =============================================================================
+
+@app.post("/tools/grammar-check")
+async def check_grammar(request: GrammarCheckRequest):
+    """
+    Check text for grammar issues
+
+    Uses LLM to identify and suggest grammar corrections
+    """
+    try:
+        logger.info("grammar_check_request", text_length=len(request.text))
+
+        from langchain.prompts import PromptTemplate
+
+        grammar_prompt = PromptTemplate(
+            input_variables=["text"],
+            template="""Analyze the following text for grammar, spelling, and punctuation errors.
+Return a JSON object with:
+- "corrected_text": The text with all corrections applied
+- "issues": An array of issues found, each with "original", "correction", "type" (grammar/spelling/punctuation), and "explanation"
+- "score": A grammar quality score from 0-100
+
+Text to analyze:
+{text}
+
+Return only valid JSON, no additional text."""
+        )
+
+        chain = grammar_prompt | llm
+        result = chain.invoke({"text": request.text})
+
+        # Parse the LLM response
+        import json
+        try:
+            parsed_result = json.loads(result.content if hasattr(result, 'content') else str(result))
+        except json.JSONDecodeError:
+            # If JSON parsing fails, return a basic response
+            parsed_result = {
+                "corrected_text": request.text,
+                "issues": [],
+                "score": 100
+            }
+
+        return JSONResponse(content={
+            "success": True,
+            "original_text": request.text,
+            "corrected_text": parsed_result.get("corrected_text", request.text),
+            "issues": parsed_result.get("issues", []),
+            "score": parsed_result.get("score", 100),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.error("grammar_check_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

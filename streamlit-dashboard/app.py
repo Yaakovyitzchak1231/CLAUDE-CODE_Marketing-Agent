@@ -166,7 +166,7 @@ def main():
 
     # Sidebar with quick stats
     with st.sidebar:
-        st.image("https://via.placeholder.com/200x60/1E3A8A/FFFFFF?text=Marketing+AI")
+        st.markdown("## 🎯 Marketing AI")
         st.markdown("---")
 
         # Quick stats in sidebar

@@ -10,7 +10,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 import trafilatura
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 
 class CompetitorSpider(CrawlSpider):
@@ -31,13 +31,23 @@ class CompetitorSpider(CrawlSpider):
         'CLOSESPIDER_PAGECOUNT': 100,  # Stop after 100 pages
     }
 
-    def __init__(self, url: str, competitor_id: int, scrape_type: str = 'full', *args, **kwargs):
+    def __init__(
+        self,
+        url: str,
+        competitor_id: str,
+        scrape_type: str = 'full',
+        allowed_domains: Optional[List[str]] = None,
+        max_depth: Optional[int] = None,
+        max_pages: Optional[int] = None,
+        *args,
+        **kwargs,
+    ):
         """
         Initialize Competitor Spider
 
         Args:
             url: Competitor website URL
-            competitor_id: Database ID of competitor
+            competitor_id: Competitor UUID
             scrape_type: Type of scrape (full, blog, pricing, products)
         """
         super(CompetitorSpider, self).__init__(*args, **kwargs)
@@ -48,7 +58,18 @@ class CompetitorSpider(CrawlSpider):
 
         # Parse domain
         parsed = urlparse(url)
-        self.allowed_domains = [parsed.netloc.replace('www.', '')]
+        self.allowed_domains = (
+            [d.replace('www.', '') for d in allowed_domains]
+            if allowed_domains
+            else [parsed.netloc.replace('www.', '')]
+        )
+
+        # Allow per-request depth/page limits
+        self.custom_settings = dict(self.custom_settings)
+        if max_depth is not None:
+            self.custom_settings['DEPTH_LIMIT'] = max_depth
+        if max_pages is not None:
+            self.custom_settings['CLOSESPIDER_PAGECOUNT'] = max_pages
 
         # Define crawling rules based on scrape type
         self.rules = self._get_rules(scrape_type)
@@ -307,14 +328,27 @@ class BlogMonitorSpider(scrapy.Spider):
         'CLOSESPIDER_PAGECOUNT': 20,
     }
 
-    def __init__(self, url: str, competitor_id: int, *args, **kwargs):
+    def __init__(
+        self,
+        url: str,
+        competitor_id: str,
+        allowed_domains: Optional[List[str]] = None,
+        max_posts: int = 20,
+        *args,
+        **kwargs,
+    ):
         super(BlogMonitorSpider, self).__init__(*args, **kwargs)
         self.start_urls = [url]
         self.competitor_id = competitor_id
+        self.max_posts = max_posts
 
         # Parse domain
         parsed = urlparse(url)
-        self.allowed_domains = [parsed.netloc.replace('www.', '')]
+        self.allowed_domains = (
+            [d.replace('www.', '') for d in allowed_domains]
+            if allowed_domains
+            else [parsed.netloc.replace('www.', '')]
+        )
 
     def parse(self, response):
         """Parse blog archive/feed page"""
@@ -324,6 +358,9 @@ class BlogMonitorSpider(scrapy.Spider):
             'article a::attr(href), .post a::attr(href), '
             '[class*="blog"] a::attr(href), h2 a::attr(href)'
         ).getall()
+
+        if self.max_posts:
+            blog_links = blog_links[: self.max_posts]
 
         # Follow links to individual posts
         for link in blog_links:

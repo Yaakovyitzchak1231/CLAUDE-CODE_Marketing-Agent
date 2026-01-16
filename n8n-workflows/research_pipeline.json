@@ -27,7 +27,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/agents/research",
+        "url": "http://langchain_service:8001/agents/research",
         "method": "POST",
         "bodyParametersJson": "={\n  \"query\": \"{{ $json.topic }}\",\n  \"max_results\": 10,\n  \"include_sentiment\": true\n}",
         "options": {
@@ -57,7 +57,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/tools/sentiment-analysis",
+        "url": "http://langchain_service:8001/tools/sentiment-analysis",
         "method": "POST",
         "bodyParametersJson": "={\n  \"text\": \"{{ $json.content }}\",\n  \"batch\": false\n}",
         "options": {}
@@ -70,7 +70,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/tools/extract-entities",
+        "url": "http://langchain_service:8001/tools/extract-entities",
         "method": "POST",
         "bodyParametersJson": "={\n  \"text\": \"{{ $json.content }}\"\n}",
         "options": {}
@@ -83,7 +83,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/tools/extract-topics",
+        "url": "http://langchain_service:8001/tools/extract-topics",
         "method": "POST",
         "bodyParametersJson": "={\n  \"text\": \"{{ $json.content }}\"\n}",
         "options": {}
@@ -144,7 +144,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/storage/vector-embeddings/add",
+        "url": "http://langchain_service:8001/storage/vector-embeddings/add",
         "method": "POST",
         "bodyParametersJson": "={\n  \"collection_name\": \"research_content\",\n  \"texts\": [\"{{ $json.content }}\"],\n  \"metadatas\": [{\n    \"campaign_id\": {{ $json.campaign_id }},\n    \"topic\": \"{{ $json.topic }}\",\n    \"sentiment\": \"{{ $json.sentiment.label }}\",\n    \"source\": \"{{ $json.source }}\",\n    \"created_at\": \"{{ $json.metadata.researched_at }}\"\n  }]\n}",
         "options": {}
@@ -181,7 +181,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/agents/trend",
+        "url": "http://langchain_service:8001/agents/trend",
         "method": "POST",
         "bodyParametersJson": "={\n  \"topics\": {{ $json.all_topics }},\n  \"time_range\": \"week\",\n  \"min_score\": 0.5\n}",
         "options": {
