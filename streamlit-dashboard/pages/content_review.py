@@ -428,12 +428,13 @@ def show_edit_tab(draft: Dict):
     with col3:
         if st.button("❌ Reject", use_container_width=True):
             if feedback_text:
-                result = submit_review_feedback(
-                    draft_id=draft['id'],
-                    action='reject',
-                    feedback_text=feedback_text,
-                    rating=rating
-                )
+                with st.spinner("Rejecting content..."):
+                    result = submit_review_feedback(
+                        draft_id=draft['id'],
+                        action='reject',
+                        feedback_text=feedback_text,
+                        rating=rating
+                    )
 
                 if result:
                     st.warning("❌ Content rejected")
