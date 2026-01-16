@@ -30,14 +30,27 @@ class Settings(BaseSettings):
     CHROMA_PORT: int = 8000
 
     # LLM Provider Selection
-    # Options: "openai", "ollama"
+    # Options: "openai", "ollama", "llamarketing"
     # If OPENAI_API_KEY is set and LLM_PROVIDER is "openai", uses OpenAI
     # Otherwise falls back to Ollama
     LLM_PROVIDER: str = "openai"  # Default to OpenAI for speed
 
+    # Content-specific LLM Provider (optional override)
+    # Set to "llamarketing" to use LLa-Marketing for content generation
+    # If not set, uses LLM_PROVIDER
+    CONTENT_LLM_PROVIDER: Optional[str] = None
+
     # Ollama LLM (fallback/local option)
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"
+
+    # LLa-Marketing (Hugging Face - marketing-specific LLM)
+    LLAMARKETING_MODEL_ID: str = "marketeam/LLa-Marketing"
+    LLAMARKETING_LOAD_8BIT: bool = True  # Reduces to ~8GB RAM
+
+    # Orchestration Mode
+    # Options: "langgraph", "crewai"
+    ORCHESTRATION_MODE: str = "langgraph"  # Default to existing LangGraph
 
     # SearXNG Search
     SEARXNG_BASE_URL: str = "http://searxng:8080"

@@ -165,6 +165,26 @@ class VideoScriptRequest(BaseModel):
     style: str = Field(default="professional", description="Visual style")
 
 
+class OrchestrationRequest(BaseModel):
+    """Request for unified orchestration endpoint."""
+    task_type: str = Field(..., description="Task type: content_blog, content_linkedin, campaign_plan, campaign_calendar, research_market, research_competitor, research_trends")
+    mode: str = Field(default="auto", description="Orchestration mode: langgraph, crewai, or auto")
+    topic: Optional[str] = Field(default=None, description="Content topic (for content tasks)")
+    target_audience: Optional[str] = Field(default=None, description="Target audience")
+    campaign_brief: Optional[str] = Field(default=None, description="Campaign brief (for campaign tasks)")
+    campaign_theme: Optional[str] = Field(default=None, description="Campaign theme (for calendar)")
+    product_description: Optional[str] = Field(default=None, description="Product description (for market research)")
+    target_market: Optional[str] = Field(default=None, description="Target market (for market research)")
+    competitor_name: Optional[str] = Field(default=None, description="Competitor name (for competitor analysis)")
+    competitor_url: Optional[str] = Field(default=None, description="Competitor URL")
+    industry: Optional[str] = Field(default=None, description="Industry (for trend analysis)")
+    keywords: Optional[List[str]] = Field(default=None, description="Target keywords")
+    word_count: Optional[int] = Field(default=None, description="Target word count")
+    tone: Optional[str] = Field(default="professional", description="Tone of voice")
+    duration_weeks: Optional[int] = Field(default=4, description="Campaign duration in weeks")
+    channels: Optional[List[str]] = Field(default=None, description="Marketing channels")
+
+
 # Health check endpoint
 @app.get("/")
 async def root():
@@ -539,6 +559,184 @@ async def run_video_script_builder(request: VideoScriptRequest):
 
     except Exception as e:
         logger.error("video_script_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# NEW INTEGRATION ENDPOINTS
+# =============================================================================
+
+# Unified Orchestration endpoint
+@app.post("/orchestrate")
+async def run_orchestration(request: OrchestrationRequest):
+    """
+    Unified orchestration endpoint supporting both LangGraph and CrewAI modes.
+
+    Task types:
+    - content_blog, content_linkedin: Content generation
+    - campaign_plan, campaign_calendar: Campaign management
+    - research_market, research_competitor, research_trends: Research tasks
+
+    Modes:
+    - langgraph: Use existing LangGraph supervisor (default)
+    - crewai: Use CrewAI multi-agent crews
+    - auto: Choose best mode based on task
+    """
+    try:
+        from config import settings
+
+        # Determine orchestration mode
+        mode = request.mode
+        if mode == "auto":
+            mode = getattr(settings, 'ORCHESTRATION_MODE', 'langgraph')
+
+        logger.info(
+            "orchestration_request",
+            task_type=request.task_type,
+            mode=mode
+        )
+
+        if mode == "crewai":
+            # Use CrewAI orchestrator
+            from crewai_integration import get_orchestrator
+
+            orchestrator = get_orchestrator()
+            kwargs = {
+                'topic': request.topic,
+                'target_audience': request.target_audience,
+                'campaign_brief': request.campaign_brief,
+                'campaign_theme': request.campaign_theme,
+                'product_description': request.product_description,
+                'target_market': request.target_market,
+                'competitor_name': request.competitor_name,
+                'competitor_url': request.competitor_url,
+                'industry': request.industry,
+                'keywords': request.keywords,
+                'word_count': request.word_count,
+                'tone': request.tone,
+                'duration_weeks': request.duration_weeks,
+                'channels': request.channels
+            }
+            # Remove None values
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+            result = orchestrator.run(request.task_type, **kwargs)
+
+        else:
+            # Use LangGraph supervisor (existing behavior)
+            # Map task types to supervisor commands
+            task_mapping = {
+                'content_blog': f"Create a blog post about {request.topic} for {request.target_audience}",
+                'content_linkedin': f"Create a LinkedIn post about {request.topic} for {request.target_audience}",
+                'campaign_plan': f"Plan a marketing campaign: {request.campaign_brief} for {request.target_audience}",
+                'research_market': f"Research market opportunity for {request.product_description} in {request.target_market}",
+                'research_competitor': f"Analyze competitor: {request.competitor_name}",
+                'research_trends': f"Identify trends in {request.industry}"
+            }
+
+            task_description = task_mapping.get(
+                request.task_type,
+                f"Execute task: {request.task_type}"
+            )
+
+            result = agents["supervisor"].run(
+                task_description,
+                context={
+                    'topic': request.topic,
+                    'target_audience': request.target_audience,
+                    'keywords': request.keywords
+                }
+            )
+            result = {
+                'result': result,
+                'process': 'langgraph_supervisor'
+            }
+
+        return JSONResponse(content={
+            "success": True,
+            "mode": mode,
+            "task_type": request.task_type,
+            "result": result,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.error("orchestration_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# LLM Providers endpoint
+@app.get("/llm/providers")
+async def list_llm_providers():
+    """
+    List all available LLM providers and their status.
+
+    Returns provider information including:
+    - Configuration (model, temperature, etc.)
+    - Availability status
+    - Capabilities (streaming, function calling)
+    """
+    try:
+        from llm_providers import list_providers
+
+        providers = list_providers()
+
+        return JSONResponse(content={
+            "success": True,
+            "providers": providers,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.error("llm_providers_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Orchestration Modes endpoint
+@app.get("/orchestration/modes")
+async def list_orchestration_modes():
+    """
+    List available orchestration modes and current configuration.
+
+    Modes:
+    - langgraph: LangGraph supervisor with specialist agents
+    - crewai: CrewAI role-based multi-agent crews
+    """
+    try:
+        from config import settings
+
+        current_mode = getattr(settings, 'ORCHESTRATION_MODE', 'langgraph')
+
+        modes = {
+            'current_mode': current_mode,
+            'available_modes': {
+                'langgraph': {
+                    'name': 'LangGraph Supervisor',
+                    'description': 'Hierarchical supervisor routing to specialist agents',
+                    'agents': list(agents.keys()),
+                    'status': 'active' if agents else 'not_initialized'
+                },
+                'crewai': {
+                    'name': 'CrewAI Orchestrator',
+                    'description': 'Role-based multi-agent crews with defined tasks',
+                    'available_tasks': [
+                        'content_blog', 'content_linkedin',
+                        'campaign_plan', 'campaign_calendar',
+                        'research_market', 'research_competitor', 'research_trends'
+                    ],
+                    'status': 'available'
+                }
+            }
+        }
+
+        return JSONResponse(content={
+            "success": True,
+            "modes": modes,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.error("orchestration_modes_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
