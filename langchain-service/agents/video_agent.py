@@ -16,6 +16,7 @@ import structlog
 from datetime import datetime
 from pathlib import Path
 import requests
+import os
 
 
 logger = structlog.get_logger()
@@ -640,6 +641,7 @@ Generate ad video."""
         self,
         scenes: List[Dict[str, Any]],
         output_path: Path,
+        draft_id: Optional[str] = None,
         add_captions: bool = True,
         add_music: bool = True,
         watermark_path: Optional[Path] = None
@@ -650,6 +652,7 @@ Generate ad video."""
         Args:
             scenes: List of scene dicts with 'prompt', 'duration', 'captions'
             output_path: Output file path
+            draft_id: Optional content draft ID to associate videos with
             add_captions: Whether to add captions
             add_music: Whether to add background music
             watermark_path: Optional watermark image
@@ -705,7 +708,7 @@ Generate ad video."""
                         }
 
                         asset_id = self.storage.save_media_asset(
-                            draft_id=None,
+                            draft_id=draft_id,
                             asset_type="video",
                             file_path=str(scene_path),
                             url=video_url,
@@ -790,19 +793,50 @@ Generate ad video."""
 
         # Add background music if requested
         if add_music:
-            # Determine video type and mood from scenes
+            # Determine tone from scenes
+            tone = scenes[0].get("tone", "professional")
             video_type = scenes[0].get("type", "corporate")
-            mood = scenes[0].get("mood", "professional")
 
-            # Use default music path or custom music if provided in scenes
+            # Map video_type to tone if tone not explicitly provided
+            if tone == "professional" and video_type:
+                tone_map = {
+                    "social": "upbeat",
+                    "product_demo": "professional",
+                    "explainer": "calm",
+                    "ad": "upbeat",
+                    "corporate": "professional"
+                }
+                tone = tone_map.get(video_type, "professional")
+
+            # Calculate total duration
+            total_duration = sum(scene.get("duration", 4) for scene in scenes)
+
+            # Check for custom music path first
             music_path = None
             for scene in scenes:
                 if "music_path" in scene:
                     music_path = Path(scene["music_path"])
                     break
 
-            # If no custom music provided, use a default corporate track
-            # In production, this would be selected from a music library
+            # If no custom music, select from library using MusicSelectionTool
+            if not music_path:
+                logger.info("selecting_music_from_library", tone=tone, duration=total_duration)
+
+                music_result = self.music_selector.select_music(
+                    tone=tone,
+                    duration=total_duration
+                )
+
+                if music_result.get("success"):
+                    music_path = Path(music_result["audio_path"])
+                    logger.info("music_selected",
+                               tone=tone,
+                               file=music_result["filename"])
+                else:
+                    logger.warning("music_selection_failed",
+                                  error=music_result.get("error"))
+
+            # Add music if we have a path
             if music_path and music_path.exists():
                 logger.info("adding_background_music", music_path=str(music_path))
 
@@ -819,15 +853,54 @@ Generate ad video."""
                 if music_result.get("success"):
                     current_path = music_output
                     logger.info("background_music_added", output=str(music_output))
+
+                    # Save music edit to database for each scene asset
+                    for asset_id in asset_ids:
+                        try:
+                            edit_params = {
+                                "track": os.path.basename(str(music_path)),
+                                "volume": 0.3,
+                                "fade_in": 1.0,
+                                "fade_out": 1.0,
+                                "tone": tone,
+                                "duration": total_duration
+                            }
+
+                            edit_metadata = {
+                                "applied_to": "final_video",
+                                "music_path": str(music_path),
+                                "scene_count": len(scenes)
+                            }
+
+                            edit_id = self.storage.save_media_edit(
+                                asset_id=asset_id,
+                                edit_type="music",
+                                parameters=edit_params,
+                                result_path=str(music_output),
+                                metadata=edit_metadata
+                            )
+
+                            logger.info(
+                                "music_edit_saved",
+                                asset_id=asset_id,
+                                edit_id=edit_id
+                            )
+
+                        except Exception as e:
+                            logger.error(
+                                "save_music_edit_failed",
+                                error=str(e),
+                                asset_id=asset_id
+                            )
                 else:
                     logger.warning(
-                        "music_addition_skipped",
-                        reason=music_result.get("error", "Music file not found")
+                        "music_addition_failed",
+                        reason=music_result.get("error")
                     )
             else:
                 logger.info(
                     "music_addition_skipped",
-                    reason="No music file provided or file does not exist"
+                    reason="No music file available"
                 )
 
         # Move to final output path
