@@ -68,7 +68,7 @@ def get_scheduled_content(campaign_id: Optional[int] = None,
                     c.name as campaign_name,
                     c.status as campaign_status,
                     pc.id as published_id,
-                    pc.channel,
+                    cd.channel,
                     pc.published_at,
                     (SELECT COUNT(*) FROM media_assets WHERE draft_id = cd.id) as media_count,
                     (SELECT COUNT(*) FROM review_feedback WHERE draft_id = cd.id) as feedback_count
@@ -92,7 +92,7 @@ def get_scheduled_content(campaign_id: Optional[int] = None,
                 params.append(date_to)
 
             if channel:
-                query += " AND pc.channel = %s"
+                query += " AND cd.channel = %s"
                 params.append(channel)
 
             query += " ORDER BY cd.scheduled_at ASC"
@@ -154,7 +154,7 @@ def get_content_by_id(draft_id: int) -> Optional[Dict]:
                     c.target_audience,
                     c.branding_json,
                     pc.id as published_id,
-                    pc.channel,
+                    cd.channel,
                     pc.published_at,
                     (SELECT COUNT(*) FROM media_assets WHERE draft_id = cd.id) as media_count,
                     (SELECT COUNT(*) FROM review_feedback WHERE draft_id = cd.id) as feedback_count
@@ -224,13 +224,13 @@ def get_calendar_statistics(campaign_id: Optional[int] = None,
             # Get breakdown by channel
             cursor.execute(f"""
                 SELECT
-                    COALESCE(pc.channel, 'unassigned') as channel,
+                    COALESCE(cd.channel, 'unassigned') as channel,
                     COUNT(DISTINCT cd.id) as scheduled_count,
                     COUNT(DISTINCT CASE WHEN pc.published_at IS NOT NULL THEN pc.id END) as published_count
                 FROM content_drafts cd
                 LEFT JOIN published_content pc ON cd.id = pc.draft_id
                 WHERE {where_clause}
-                GROUP BY pc.channel
+                GROUP BY cd.channel
                 ORDER BY scheduled_count DESC
             """, params)
             channel_breakdown = cursor.fetchall()
@@ -255,7 +255,7 @@ def get_calendar_statistics(campaign_id: Optional[int] = None,
                     COUNT(DISTINCT cd.id) as total_scheduled,
                     COUNT(DISTINCT CASE WHEN pc.published_at IS NOT NULL THEN pc.id END) as total_published,
                     COUNT(DISTINCT CASE WHEN pc.published_at IS NULL THEN cd.id END) as total_pending,
-                    COUNT(DISTINCT COALESCE(pc.channel, 'unassigned')) as unique_channels,
+                    COUNT(DISTINCT COALESCE(cd.channel, 'unassigned')) as unique_channels,
                     COUNT(DISTINCT cd.campaign_id) as campaigns_count
                 FROM content_drafts cd
                 LEFT JOIN published_content pc ON cd.id = pc.draft_id
