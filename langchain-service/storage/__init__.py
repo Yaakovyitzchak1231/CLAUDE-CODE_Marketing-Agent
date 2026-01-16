@@ -4,6 +4,7 @@ PostgreSQL and vector database storage utilities
 """
 
 from .postgres_storage import PostgreSQLStorage, create_storage
+from .brand_voice_storage import BrandVoiceStorage, create_brand_voice_storage
 from .vector_embeddings import (
     VectorEmbeddingPipeline,
     ContentLibraryPipeline,
@@ -21,6 +22,10 @@ __all__ = [
     # PostgreSQL Storage
     'PostgreSQLStorage',
     'create_storage',
+
+    # Brand Voice Storage
+    'BrandVoiceStorage',
+    'create_brand_voice_storage',
 
     # Vector Embeddings
     'VectorEmbeddingPipeline',
