@@ -1,5 +1,4 @@
 # Core LangChain and LangGraph
-# Updated for CrewAI compatibility (requires langchain >= 0.2)
 langchain>=0.2.0,<0.4.0
 langchain-community>=0.2.0,<0.4.0
 langchain-core>=0.2.0,<0.4.0
@@ -86,10 +85,14 @@ pytest==7.4.4
 pytest-asyncio==0.23.3
 
 # =============================================================================
-# CREWAI - MULTI-AGENT ORCHESTRATION
+# CREWAI - MULTI-AGENT ORCHESTRATION (OPTIONAL)
 # =============================================================================
-crewai>=0.28.0                  # Role-based multi-agent framework
-crewai-tools>=0.1.0             # CrewAI tool integrations
+# CrewAI has complex dependencies that conflict with other packages.
+# To enable CrewAI mode, install separately in a virtual environment:
+#   pip install crewai crewai-tools
+# The system works fully with LangGraph mode (default).
+# crewai>=0.51.0
+# crewai-tools>=0.4.0
 
 # =============================================================================
 # LLa-MARKETING - DOMAIN-SPECIFIC LLM (OPTIONAL)

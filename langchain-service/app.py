@@ -233,7 +233,15 @@ async def run_supervisor(request: SupervisorRequest):
     try:
         logger.info("supervisor_request", task=request.task)
 
-        result = agents["supervisor"].run(request.task, context=request.context)
+        # Generate a campaign ID for this request
+        import uuid
+        campaign_id = str(uuid.uuid4())[:8]
+
+        result = agents["supervisor"].execute(
+            campaign_id=campaign_id,
+            task_type="general",
+            initial_prompt=request.task
+        )
 
         return JSONResponse(content={
             "success": True,
@@ -639,18 +647,16 @@ async def run_orchestration(request: OrchestrationRequest):
                 f"Execute task: {request.task_type}"
             )
 
-            result = agents["supervisor"].run(
-                task_description,
-                context={
-                    'topic': request.topic,
-                    'target_audience': request.target_audience,
-                    'keywords': request.keywords
-                }
+            # Generate a campaign ID for this request
+            import uuid
+            campaign_id = str(uuid.uuid4())[:8]
+
+            result = agents["supervisor"].execute(
+                campaign_id=campaign_id,
+                task_type=request.task_type,
+                initial_prompt=task_description
             )
-            result = {
-                'result': result,
-                'process': 'langgraph_supervisor'
-            }
+            result['process'] = 'langgraph_supervisor'
 
         return JSONResponse(content={
             "success": True,
