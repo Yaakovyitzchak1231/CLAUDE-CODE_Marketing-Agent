@@ -22,9 +22,9 @@ st.set_page_config(
 DB_CONFIG = {
     "host": os.getenv("POSTGRES_HOST", "localhost"),
     "port": int(os.getenv("POSTGRES_PORT", 5432)),
-    "database": os.getenv("POSTGRES_DB", "marketing_db"),
-    "user": os.getenv("POSTGRES_USER", "marketing_user"),
-    "password": os.getenv("POSTGRES_PASSWORD", "marketing_pass")
+    "database": os.getenv("POSTGRES_DB", "marketing"),
+    "user": os.getenv("POSTGRES_USER", "n8n"),
+    "password": os.getenv("POSTGRES_PASSWORD", "n8npassword"),
 }
 
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://n8n:5678/webhook")
@@ -633,6 +633,9 @@ def step_6_review_and_finish():
                 )
 
                 if user_id:
+                    # Persist current user ID for other pages (UUID)
+                    st.session_state["user_id"] = str(user_id)
+
                     # Trigger n8n onboarding workflow
                     profile_data_for_workflow = {
                         **profile,
