@@ -57,6 +57,10 @@ CREATE TABLE brand_voice_profiles (
 CREATE INDEX idx_brand_voice_profiles_campaign ON brand_voice_profiles(campaign_id);
 CREATE INDEX idx_brand_voice_profiles_name ON brand_voice_profiles(profile_name);
 
+-- Add foreign key from campaigns to brand_voice_profiles for active voice profile
+ALTER TABLE campaigns ADD COLUMN brand_voice_profile_id UUID REFERENCES brand_voice_profiles(id) ON DELETE SET NULL;
+CREATE INDEX idx_campaigns_brand_voice_profile ON campaigns(brand_voice_profile_id);
+
 -- ==================== CONTENT MANAGEMENT ====================
 
 CREATE TABLE content_drafts (
