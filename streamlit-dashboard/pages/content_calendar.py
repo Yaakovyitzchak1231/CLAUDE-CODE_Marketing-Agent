@@ -129,6 +129,45 @@ def get_campaigns_for_filter() -> List[Dict]:
         return []
 
 
+def get_content_by_id(draft_id: int) -> Optional[Dict]:
+    """Fetch specific content draft by ID"""
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute("""
+                SELECT
+                    cd.id,
+                    cd.type as content_type,
+                    cd.content,
+                    cd.status,
+                    cd.scheduled_at,
+                    cd.seo_score,
+                    cd.created_at,
+                    c.id as campaign_id,
+                    c.name as campaign_name,
+                    c.status as campaign_status,
+                    c.target_audience,
+                    c.branding_json,
+                    pc.id as published_id,
+                    pc.channel,
+                    pc.published_at,
+                    (SELECT COUNT(*) FROM media_assets WHERE draft_id = cd.id) as media_count,
+                    (SELECT COUNT(*) FROM review_feedback WHERE draft_id = cd.id) as feedback_count
+                FROM content_drafts cd
+                LEFT JOIN campaigns c ON cd.campaign_id = c.id
+                LEFT JOIN published_content pc ON cd.id = pc.draft_id
+                WHERE cd.id = %s
+            """, (draft_id,))
+
+            return cursor.fetchone()
+    except Exception as e:
+        st.error(f"Error fetching content: {str(e)}")
+        return None
+
+
 def update_content_schedule(draft_id: int, new_scheduled_at: datetime) -> bool:
     """Update the scheduled_at timestamp for a content draft"""
     conn = get_db_connection()
@@ -153,6 +192,14 @@ def update_content_schedule(draft_id: int, new_scheduled_at: datetime) -> bool:
 
 def main():
     """Main content calendar application"""
+
+    # Session state initialization
+    if 'selected_content_id' not in st.session_state:
+        st.session_state['selected_content_id'] = None
+    if 'edit_scheduled_date' not in st.session_state:
+        st.session_state['edit_scheduled_date'] = None
+    if 'edit_scheduled_time' not in st.session_state:
+        st.session_state['edit_scheduled_time'] = None
 
     # Custom CSS for calendar styling
     st.markdown("""
@@ -199,7 +246,7 @@ def main():
         </style>
     """, unsafe_allow_html=True)
 
-    # Sidebar filters
+    # Sidebar filters and content detail editor
     with st.sidebar:
         st.markdown("### 📅 Calendar Filters")
 
@@ -259,6 +306,118 @@ def main():
             st.rerun()
 
         st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+        # Content Detail Editor
+        if st.session_state.get('selected_content_id'):
+            st.markdown("---")
+            st.markdown("### ✏️ Edit Schedule")
+
+            selected_content = get_content_by_id(st.session_state['selected_content_id'])
+
+            if selected_content:
+                st.markdown(f"**{selected_content.get('content_type', 'Content').upper()}**")
+                st.caption(f"Campaign: {selected_content.get('campaign_name', 'N/A')}")
+
+                # Display current schedule
+                current_schedule = selected_content.get('scheduled_at')
+                if current_schedule:
+                    current_dt = pd.to_datetime(current_schedule)
+                    st.info(f"Current: {current_dt.strftime('%Y-%m-%d %I:%M %p')}")
+
+                    # Initialize edit fields if not already set
+                    if st.session_state['edit_scheduled_date'] is None:
+                        st.session_state['edit_scheduled_date'] = current_dt.date()
+                    if st.session_state['edit_scheduled_time'] is None:
+                        st.session_state['edit_scheduled_time'] = current_dt.time()
+                else:
+                    st.warning("No schedule set")
+                    # Set defaults
+                    if st.session_state['edit_scheduled_date'] is None:
+                        st.session_state['edit_scheduled_date'] = datetime.now().date()
+                    if st.session_state['edit_scheduled_time'] is None:
+                        st.session_state['edit_scheduled_time'] = datetime.now().time()
+
+                # Edit form
+                with st.form(key="edit_schedule_form"):
+                    new_date = st.date_input(
+                        "Schedule Date",
+                        value=st.session_state['edit_scheduled_date'],
+                        key="form_date"
+                    )
+
+                    new_time = st.time_input(
+                        "Schedule Time",
+                        value=st.session_state['edit_scheduled_time'],
+                        key="form_time"
+                    )
+
+                    # Form buttons
+                    col_save, col_cancel = st.columns(2)
+
+                    with col_save:
+                        save_clicked = st.form_submit_button(
+                            "💾 Save",
+                            use_container_width=True,
+                            type="primary"
+                        )
+
+                    with col_cancel:
+                        cancel_clicked = st.form_submit_button(
+                            "❌ Cancel",
+                            use_container_width=True
+                        )
+
+                    # Handle form submission
+                    if save_clicked:
+                        # Combine date and time
+                        new_scheduled_at = datetime.combine(new_date, new_time)
+
+                        # Update database
+                        if update_content_schedule(st.session_state['selected_content_id'], new_scheduled_at):
+                            st.success("✅ Schedule updated successfully!")
+
+                            # Clear cache to refresh calendar
+                            st.cache_data.clear()
+
+                            # Reset selection
+                            st.session_state['selected_content_id'] = None
+                            st.session_state['edit_scheduled_date'] = None
+                            st.session_state['edit_scheduled_time'] = None
+
+                            st.rerun()
+                        else:
+                            st.error("Failed to update schedule")
+
+                    if cancel_clicked:
+                        # Reset selection without saving
+                        st.session_state['selected_content_id'] = None
+                        st.session_state['edit_scheduled_date'] = None
+                        st.session_state['edit_scheduled_time'] = None
+                        st.rerun()
+
+                # Show content preview
+                st.markdown("---")
+                st.markdown("**Content Preview:**")
+                content_text = selected_content.get('content', '')
+                if content_text:
+                    preview_text = content_text[:200] + "..." if len(content_text) > 200 else content_text
+                    st.text_area("", value=preview_text, height=150, disabled=True, key="content_preview")
+                else:
+                    st.caption("No content available")
+
+                # Metadata
+                st.markdown("---")
+                st.markdown("**Metadata:**")
+                st.caption(f"Status: {selected_content.get('status', 'unknown')}")
+                if selected_content.get('channel'):
+                    st.caption(f"Channel: {selected_content.get('channel', 'N/A')}")
+                if selected_content.get('seo_score'):
+                    st.caption(f"SEO Score: {selected_content.get('seo_score', 0)}/100")
+                st.caption(f"Media: {selected_content.get('media_count', 0)} assets")
+                st.caption(f"Feedback: {selected_content.get('feedback_count', 0)} reviews")
+            else:
+                st.error("Content not found")
+                st.session_state['selected_content_id'] = None
 
     # Main content area
     st.markdown('<h1 class="main-header">📅 Content Calendar</h1>', unsafe_allow_html=True)
@@ -376,7 +535,7 @@ def main():
 
             with st.expander(f"📅 {date.strftime('%A, %B %d, %Y')} ({len(day_content)} items)", expanded=False):
                 for _, item in day_content.iterrows():
-                    col_a, col_b, col_c = st.columns([3, 2, 1])
+                    col_a, col_b, col_c, col_d = st.columns([3, 2, 1, 1])
 
                     with col_a:
                         # Content type and campaign
@@ -409,6 +568,14 @@ def main():
                             'rejected': '❌'
                         }
                         st.caption(f"{status_emoji.get(status, '❓')} {status}")
+
+                    with col_d:
+                        # Edit button
+                        if st.button("✏️ Edit", key=f"edit_{item['id']}", use_container_width=True):
+                            st.session_state['selected_content_id'] = item['id']
+                            st.session_state['edit_scheduled_date'] = None
+                            st.session_state['edit_scheduled_time'] = None
+                            st.rerun()
 
                     st.markdown("---")
     else:
