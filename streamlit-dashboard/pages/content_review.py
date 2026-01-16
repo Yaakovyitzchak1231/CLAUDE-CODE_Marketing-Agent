@@ -391,12 +391,13 @@ def show_edit_tab(draft: Dict):
 
     with col1:
         if st.button("✅ Approve & Publish", type="primary", use_container_width=True):
-            result = submit_review_feedback(
-                draft_id=draft['id'],
-                action='approve',
-                feedback_text=feedback_text,
-                rating=rating
-            )
+            with st.spinner("Approving content and queueing for publishing..."):
+                result = submit_review_feedback(
+                    draft_id=draft['id'],
+                    action='approve',
+                    feedback_text=feedback_text,
+                    rating=rating
+                )
 
             if result:
                 st.success("✅ Content approved and queued for publishing!")
