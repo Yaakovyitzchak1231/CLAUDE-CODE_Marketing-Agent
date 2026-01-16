@@ -416,6 +416,22 @@ def render_asset_card(asset: Dict):
     if media_source:
         if asset['type'] == 'video':
             st.video(media_source)
+            # Add download button for local video files
+            if asset['file_path'] and os.path.exists(asset['file_path']):
+                try:
+                    with open(asset['file_path'], 'rb') as f:
+                        video_bytes = f.read()
+                    filename = os.path.basename(asset['file_path'])
+                    st.download_button(
+                        label="💾 Download",
+                        data=video_bytes,
+                        file_name=filename,
+                        mime="video/mp4",
+                        key=f"download_{asset['id']}",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.caption(f"Download unavailable")
         else:
             st.image(media_source)
     else:
@@ -474,6 +490,22 @@ def render_asset_list_item(asset: Dict):
             if media_source:
                 if asset['type'] == 'video':
                     st.video(media_source)
+                    # Add download button for local video files
+                    if asset['file_path'] and os.path.exists(asset['file_path']):
+                        try:
+                            with open(asset['file_path'], 'rb') as f:
+                                video_bytes = f.read()
+                            filename = os.path.basename(asset['file_path'])
+                            st.download_button(
+                                label="💾",
+                                data=video_bytes,
+                                file_name=filename,
+                                mime="video/mp4",
+                                key=f"download_list_{asset['id']}",
+                                help="Download video"
+                            )
+                        except Exception as e:
+                            pass
                 else:
                     st.image(media_source, width=150)
             else:
@@ -616,8 +648,26 @@ if st.session_state.get('selected_asset_id'):
                         st.error("Failed to attach asset")
 
             # Download
-            if st.button("💾 Download", use_container_width=True):
-                st.info(f"Download: {asset_detail['url']}")
+            if asset_detail['type'] == 'video' and asset_detail['file_path'] and os.path.exists(asset_detail['file_path']):
+                try:
+                    with open(asset_detail['file_path'], 'rb') as f:
+                        video_bytes = f.read()
+                    filename = os.path.basename(asset_detail['file_path'])
+                    st.download_button(
+                        label="💾 Download Video",
+                        data=video_bytes,
+                        file_name=filename,
+                        mime="video/mp4",
+                        key=f"download_detail_{asset_id}",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Download failed: {str(e)}")
+            elif asset_detail.get('url'):
+                if st.button("💾 Download", use_container_width=True):
+                    st.info(f"Download: {asset_detail['url']}")
+            else:
+                st.caption("Download unavailable")
 
         # Tabs for additional info
         tab1, tab2 = st.tabs(["📊 Usage Analytics", "✏️ Edit History"])
