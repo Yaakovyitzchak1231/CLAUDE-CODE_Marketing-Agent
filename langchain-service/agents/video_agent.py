@@ -12,6 +12,7 @@ from tools.ffmpeg_tool import FFmpegTool, create_ffmpeg_langchain_tool
 import structlog
 from datetime import datetime
 from pathlib import Path
+import requests
 
 
 logger = structlog.get_logger()
@@ -465,6 +466,66 @@ Generate ad video."""
 
         return result
 
+    def download_video(
+        self,
+        video_url: str,
+        output_path: Path,
+        timeout: int = 300
+    ) -> Dict[str, Any]:
+        """
+        Download video from URL to local file
+
+        Args:
+            video_url: URL of video to download
+            output_path: Path to save downloaded video
+            timeout: Download timeout in seconds
+
+        Returns:
+            Dict with download status and path
+        """
+        try:
+            logger.info("downloading_video", url=video_url, output=str(output_path))
+
+            # Create parent directory if it doesn't exist
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Download video with streaming
+            response = requests.get(video_url, stream=True, timeout=timeout)
+            response.raise_for_status()
+
+            # Write to file
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+            file_size = output_path.stat().st_size
+            logger.info(
+                "video_downloaded",
+                path=str(output_path),
+                size_bytes=file_size
+            )
+
+            return {
+                "success": True,
+                "path": str(output_path),
+                "size_bytes": file_size
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error("video_download_error", error=str(e), url=video_url)
+            return {
+                "success": False,
+                "error": str(e),
+                "url": video_url
+            }
+        except Exception as e:
+            logger.error("video_download_unexpected_error", error=str(e))
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     def create_multi_scene_video(
         self,
         scenes: List[Dict[str, Any]],
@@ -514,11 +575,18 @@ Generate ad video."""
                 video_url = result.get("video_url")
                 scene_path = output_path.parent / f"scene_{i}.mp4"
 
-                # TODO: Download video from URL to scene_path
-                # This would require implementing download logic
+                # Download video from URL
+                download_result = self.download_video(video_url, scene_path)
 
-                scene_paths.append(scene_path)
-                total_cost += result.get("cost", 0)
+                if download_result.get("success"):
+                    scene_paths.append(scene_path)
+                    total_cost += result.get("cost", 0)
+                else:
+                    logger.error(
+                        "scene_download_failed",
+                        scene=i,
+                        error=download_result.get("error")
+                    )
 
         # Concatenate scenes
         concat_path = output_path.parent / "concatenated.mp4"
