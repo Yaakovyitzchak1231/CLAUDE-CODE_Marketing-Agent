@@ -411,8 +411,29 @@ def render_asset_card(asset: Dict):
         st.session_state['selected_assets'].remove(asset['id'])
 
     # Asset thumbnail
-    if asset['url']:
-        st.image(asset['url'])
+    media_source = asset['url'] or asset['file_path']
+
+    if media_source:
+        if asset['type'] == 'video':
+            st.video(media_source)
+            # Add download button for local video files
+            if asset['file_path'] and os.path.exists(asset['file_path']):
+                try:
+                    with open(asset['file_path'], 'rb') as f:
+                        video_bytes = f.read()
+                    filename = os.path.basename(asset['file_path'])
+                    st.download_button(
+                        label="💾 Download",
+                        data=video_bytes,
+                        file_name=filename,
+                        mime="video/mp4",
+                        key=f"download_{asset['id']}",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.caption(f"Download unavailable")
+        else:
+            st.image(media_source)
     else:
         st.markdown(f"**{asset['type'].upper()}**")
         st.caption(f"No preview available")
@@ -464,8 +485,29 @@ def render_asset_list_item(asset: Dict):
 
         with col2:
             # Thumbnail
-            if asset['url']:
-                st.image(asset['url'], width=150)
+            media_source = asset['url'] or asset['file_path']
+
+            if media_source:
+                if asset['type'] == 'video':
+                    st.video(media_source)
+                    # Add download button for local video files
+                    if asset['file_path'] and os.path.exists(asset['file_path']):
+                        try:
+                            with open(asset['file_path'], 'rb') as f:
+                                video_bytes = f.read()
+                            filename = os.path.basename(asset['file_path'])
+                            st.download_button(
+                                label="💾",
+                                data=video_bytes,
+                                file_name=filename,
+                                mime="video/mp4",
+                                key=f"download_list_{asset['id']}",
+                                help="Download video"
+                            )
+                        except Exception as e:
+                            pass
+                else:
+                    st.image(media_source, width=150)
             else:
                 st.markdown(f"**{asset['type'].upper()}**")
 
@@ -554,11 +596,13 @@ if st.session_state.get('selected_asset_id'):
         with col1:
             # Asset preview
             st.subheader("Preview")
-            if asset_detail['url']:
+            media_source = asset_detail['url'] or asset_detail['file_path']
+
+            if media_source:
                 if asset_detail['type'] == 'image':
-                    st.image(asset_detail['url'])
+                    st.image(media_source)
                 elif asset_detail['type'] == 'video':
-                    st.video(asset_detail['url'])
+                    st.video(media_source)
             else:
                 st.info("No preview available")
 
@@ -604,8 +648,26 @@ if st.session_state.get('selected_asset_id'):
                         st.error("Failed to attach asset")
 
             # Download
-            if st.button("💾 Download", use_container_width=True):
-                st.info(f"Download: {asset_detail['url']}")
+            if asset_detail['type'] == 'video' and asset_detail['file_path'] and os.path.exists(asset_detail['file_path']):
+                try:
+                    with open(asset_detail['file_path'], 'rb') as f:
+                        video_bytes = f.read()
+                    filename = os.path.basename(asset_detail['file_path'])
+                    st.download_button(
+                        label="💾 Download Video",
+                        data=video_bytes,
+                        file_name=filename,
+                        mime="video/mp4",
+                        key=f"download_detail_{asset_id}",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Download failed: {str(e)}")
+            elif asset_detail.get('url'):
+                if st.button("💾 Download", use_container_width=True):
+                    st.info(f"Download: {asset_detail['url']}")
+            else:
+                st.caption("Download unavailable")
 
         # Tabs for additional info
         tab1, tab2 = st.tabs(["📊 Usage Analytics", "✏️ Edit History"])
@@ -643,7 +705,20 @@ if st.session_state.get('selected_asset_id'):
             if edits:
                 for edit in edits:
                     with st.expander(f"{edit['edit_type']} - {edit['created_at'].strftime('%Y-%m-%d %H:%M')}"):
-                        st.json(edit['edit_params'])
+                        # Display music metadata for music edits
+                        if edit['edit_type'] == 'add_music' and edit['edit_params']:
+                            params = edit['edit_params']
+                            if 'music_tone' in params:
+                                st.markdown(f"**Music Tone:** {params['music_tone']}")
+                            if 'music_file' in params:
+                                st.markdown(f"**Music File:** {params['music_file']}")
+                            if 'volume' in params:
+                                st.markdown(f"**Volume:** {params['volume']}")
+                            st.markdown("**All Parameters:**")
+                            st.json(params)
+                        else:
+                            st.json(edit['edit_params'])
+
                         if edit['edited_file_path']:
                             st.caption(f"Output: {edit['edited_file_path']}")
             else:

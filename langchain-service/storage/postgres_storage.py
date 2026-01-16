@@ -598,6 +598,137 @@ class PostgreSQLStorage:
         finally:
             self.pool.putconn(conn)
 
+    # === Media Assets ===
+
+    def save_media_asset(
+        self,
+        draft_id: Optional[str],
+        asset_type: str,
+        file_path: Optional[str] = None,
+        url: Optional[str] = None,
+        prompt: Optional[str] = None,
+        provider: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        cost: Optional[float] = None
+    ) -> str:
+        """
+        Save media asset to database
+
+        Args:
+            draft_id: Optional draft ID (UUID)
+            asset_type: Type of asset (image, video)
+            file_path: Local file path
+            url: Remote URL
+            prompt: Generation prompt
+            provider: API provider (dalle3, midjourney, runway, pika, etc.)
+            metadata: Additional metadata (dimensions, duration, format, etc.)
+            cost: Generation cost
+
+        Returns:
+            Asset ID (UUID string)
+        """
+        conn = self.pool.getconn()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                INSERT INTO media_assets (
+                    draft_id, type, file_path, url, prompt,
+                    api_provider, metadata_json, generation_cost
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (
+                draft_id,
+                asset_type,
+                file_path,
+                url,
+                prompt,
+                provider,
+                Json(metadata) if metadata else None,
+                cost
+            ))
+
+            asset_id = cursor.fetchone()[0]
+            conn.commit()
+
+            logger.info(
+                "media_asset_saved",
+                asset_id=asset_id,
+                asset_type=asset_type,
+                provider=provider,
+                file_path=file_path
+            )
+
+            return str(asset_id)
+
+        except Exception as e:
+            conn.rollback()
+            logger.error("media_asset_save_error", error=str(e))
+            raise
+
+        finally:
+            self.pool.putconn(conn)
+
+    def save_media_edit(
+        self,
+        asset_id: str,
+        edit_type: str,
+        parameters: Dict[str, Any],
+        result_path: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Save media edit (music/watermark) to database
+
+        Args:
+            asset_id: ID of the media asset being edited
+            edit_type: Type of edit (music, watermark)
+            parameters: Edit parameters (music file, watermark settings, etc.)
+            result_path: Path to the edited file
+            metadata: Additional metadata
+
+        Returns:
+            Edit ID (UUID string)
+        """
+        conn = self.pool.getconn()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                INSERT INTO media_edits (
+                    asset_id, edit_type, parameters, result_path, metadata_json
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+            """, (
+                asset_id,
+                edit_type,
+                Json(parameters),
+                result_path,
+                Json(metadata) if metadata else None
+            ))
+
+            edit_id = cursor.fetchone()[0]
+            conn.commit()
+
+            logger.info(
+                "media_edit_saved",
+                edit_id=edit_id,
+                asset_id=asset_id,
+                edit_type=edit_type
+            )
+
+            return str(edit_id)
+
+        except Exception as e:
+            conn.rollback()
+            logger.error("media_edit_save_error", error=str(e))
+            raise
+
+        finally:
+            self.pool.putconn(conn)
+
     def close(self):
         """Close connection pool"""
         if self.pool:

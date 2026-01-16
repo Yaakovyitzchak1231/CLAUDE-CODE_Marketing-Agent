@@ -9,9 +9,14 @@ from .base_agent import BaseAgent
 from tools.runway_tool import RunwayTool, create_runway_langchain_tool
 from tools.pika_tool import PikaTool, create_pika_langchain_tool
 from tools.ffmpeg_tool import FFmpegTool, create_ffmpeg_langchain_tool
+from tools.video_download_tool import VideoDownloadTool, create_video_download_langchain_tool
+from tools.music_selection_tool import MusicSelectionTool, create_music_selection_langchain_tool
+from storage.postgres_storage import PostgreSQLStorage
 import structlog
 from datetime import datetime
 from pathlib import Path
+import requests
+import os
 
 
 logger = structlog.get_logger()
@@ -37,6 +42,8 @@ class VideoGenerationAgent(BaseAgent):
         runway_tool = create_runway_langchain_tool()
         pika_tool = create_pika_langchain_tool()
         ffmpeg_tool = create_ffmpeg_langchain_tool()
+        download_tool = create_video_download_langchain_tool()
+        music_tool = create_music_selection_langchain_tool()
 
         # Create video script builder tool
         def build_video_script(content_description: str, duration: int = 30) -> str:
@@ -143,13 +150,104 @@ Format as a single, detailed prompt suitable for Runway ML or Pika."""
                         "Input should be base prompt and platform name."
         )
 
+        # Create music selector tool
+        def select_background_music(
+            video_type: str,
+            mood: str = "professional",
+            duration: int = 30,
+            platform: str = "linkedin"
+        ) -> str:
+            """Select appropriate background music for video"""
+
+            music_recommendations = {
+                "corporate": {
+                    "upbeat": "energetic-corporate-inspiring.mp3",
+                    "professional": "modern-corporate-background.mp3",
+                    "calm": "soft-corporate-ambient.mp3"
+                },
+                "social": {
+                    "upbeat": "trendy-upbeat-pop.mp3",
+                    "professional": "modern-social-vibe.mp3",
+                    "energetic": "fast-social-beat.mp3"
+                },
+                "product_demo": {
+                    "upbeat": "tech-showcase-upbeat.mp3",
+                    "professional": "product-demo-professional.mp3",
+                    "innovative": "innovative-tech-music.mp3"
+                },
+                "explainer": {
+                    "upbeat": "educational-upbeat.mp3",
+                    "calm": "learning-ambient.mp3",
+                    "professional": "explainer-background.mp3"
+                },
+                "ad": {
+                    "upbeat": "catchy-ad-music.mp3",
+                    "energetic": "high-energy-ad.mp3",
+                    "emotional": "emotional-brand-story.mp3"
+                }
+            }
+
+            # Platform-specific recommendations
+            platform_moods = {
+                "linkedin": "professional",
+                "instagram": "upbeat",
+                "youtube": "professional",
+                "tiktok": "energetic",
+                "facebook": "upbeat"
+            }
+
+            # Determine video category
+            category = "corporate"
+            if "social" in video_type.lower():
+                category = "social"
+            elif "product" in video_type.lower() or "demo" in video_type.lower():
+                category = "product_demo"
+            elif "explain" in video_type.lower():
+                category = "explainer"
+            elif "ad" in video_type.lower() or "advertisement" in video_type.lower():
+                category = "ad"
+
+            # Get music recommendation
+            category_music = music_recommendations.get(category, music_recommendations["corporate"])
+            recommended_mood = platform_moods.get(platform, mood)
+            music_file = category_music.get(recommended_mood, category_music.get("professional"))
+
+            recommendation = f"""Music Selection for {video_type}:
+
+Category: {category}
+Mood: {recommended_mood}
+Duration: {duration}s
+Platform: {platform}
+
+Recommended Track: {music_file}
+
+Audio Settings:
+- Volume: 0.3 (30% - ensures voiceover clarity)
+- Fade In: 1.0s (smooth introduction)
+- Fade Out: 1.0s (professional ending)
+
+Music will loop if video is longer than track duration.
+Music will be trimmed if track is longer than video."""
+
+            return recommendation
+
+        music_selector_tool = Tool(
+            name="Music_Selector",
+            func=select_background_music,
+            description="Select appropriate background music for video based on type, mood, duration, and platform. "
+                        "Input should be video type and desired mood."
+        )
+
         tools = [
             runway_tool,
             pika_tool,
             ffmpeg_tool,
+            download_tool,
+            music_tool,
             script_builder_tool,
             optimizer_tool,
-            platform_tool
+            platform_tool,
+            music_selector_tool
         ]
 
         super().__init__(
@@ -163,6 +261,11 @@ Format as a single, detailed prompt suitable for Runway ML or Pika."""
         self.runway = RunwayTool()
         self.pika = PikaTool()
         self.ffmpeg = FFmpegTool()
+        self.downloader = VideoDownloadTool()
+        self.music_selector = MusicSelectionTool()
+
+        # Initialize storage
+        self.storage = PostgreSQLStorage()
 
         logger.info("video_agent_initialized")
 
@@ -212,8 +315,17 @@ Video Editing Workflow:
 3. Concatenate scenes
 4. Add captions/subtitles
 5. Add watermark/logo
-6. Add background music
+6. Select and add background music
 7. Final quality check
+
+Music Selection:
+- Corporate: Professional, modern, ambient
+- Social: Upbeat, trendy, energetic
+- Product Demo: Tech-focused, innovative
+- Explainer: Educational, calm, professional
+- Advertisement: Catchy, emotional, high-energy
+- Volume: 30% (ensures voiceover clarity)
+- Fade in/out: 1 second (professional transitions)
 
 Quality Standards:
 - High-resolution output
@@ -465,10 +577,71 @@ Generate ad video."""
 
         return result
 
+    def download_video(
+        self,
+        video_url: str,
+        output_path: Path,
+        timeout: int = 300
+    ) -> Dict[str, Any]:
+        """
+        Download video from URL to local file
+
+        Args:
+            video_url: URL of video to download
+            output_path: Path to save downloaded video
+            timeout: Download timeout in seconds
+
+        Returns:
+            Dict with download status and path
+        """
+        try:
+            logger.info("downloading_video", url=video_url, output=str(output_path))
+
+            # Create parent directory if it doesn't exist
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Download video with streaming
+            response = requests.get(video_url, stream=True, timeout=timeout)
+            response.raise_for_status()
+
+            # Write to file
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+            file_size = output_path.stat().st_size
+            logger.info(
+                "video_downloaded",
+                path=str(output_path),
+                size_bytes=file_size
+            )
+
+            return {
+                "success": True,
+                "path": str(output_path),
+                "size_bytes": file_size
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error("video_download_error", error=str(e), url=video_url)
+            return {
+                "success": False,
+                "error": str(e),
+                "url": video_url
+            }
+        except Exception as e:
+            logger.error("video_download_unexpected_error", error=str(e))
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     def create_multi_scene_video(
         self,
         scenes: List[Dict[str, Any]],
         output_path: Path,
+        draft_id: Optional[str] = None,
         add_captions: bool = True,
         add_music: bool = True,
         watermark_path: Optional[Path] = None
@@ -479,6 +652,7 @@ Generate ad video."""
         Args:
             scenes: List of scene dicts with 'prompt', 'duration', 'captions'
             output_path: Output file path
+            draft_id: Optional content draft ID to associate videos with
             add_captions: Whether to add captions
             add_music: Whether to add background music
             watermark_path: Optional watermark image
@@ -491,6 +665,7 @@ Generate ad video."""
         # Generate each scene
         scene_paths = []
         total_cost = 0
+        asset_ids = []
 
         for i, scene in enumerate(scenes, 1):
             logger.info(f"generating_scene", scene=i, total=len(scenes))
@@ -514,11 +689,58 @@ Generate ad video."""
                 video_url = result.get("video_url")
                 scene_path = output_path.parent / f"scene_{i}.mp4"
 
-                # TODO: Download video from URL to scene_path
-                # This would require implementing download logic
+                # Download video from URL
+                download_result = self.download_video(video_url, scene_path)
 
-                scene_paths.append(scene_path)
-                total_cost += result.get("cost", 0)
+                if download_result.get("success"):
+                    scene_paths.append(scene_path)
+                    total_cost += result.get("cost", 0)
+
+                    # Save video to database
+                    try:
+                        asset_metadata = {
+                            "scene_number": i,
+                            "total_scenes": len(scenes),
+                            "download_timestamp": datetime.utcnow().isoformat(),
+                            "file_size": download_result.get("size_bytes"),
+                            "duration": scene.get("duration"),
+                            "prompt": scene["prompt"]
+                        }
+
+                        asset_id = self.storage.save_media_asset(
+                            draft_id=draft_id,
+                            asset_type="video",
+                            file_path=str(scene_path),
+                            url=video_url,
+                            prompt=scene["prompt"],
+                            provider=provider,
+                            metadata=asset_metadata,
+                            cost=result.get("cost", 0)
+                        )
+
+                        asset_ids.append(asset_id)
+
+                        logger.info(
+                            "video_saved_to_database",
+                            asset_id=asset_id,
+                            scene=i,
+                            file_path=str(scene_path)
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            "video_save_to_database_failed",
+                            error=str(e),
+                            scene=i,
+                            file_path=str(scene_path)
+                        )
+
+                else:
+                    logger.error(
+                        "scene_download_failed",
+                        scene=i,
+                        error=download_result.get("error")
+                    )
 
         # Concatenate scenes
         concat_path = output_path.parent / "concatenated.mp4"
@@ -570,7 +792,116 @@ Generate ad video."""
                 current_path = watermark_output
 
         # Add background music if requested
-        # TODO: Implement music selection and addition
+        if add_music:
+            # Determine tone from scenes
+            tone = scenes[0].get("tone", "professional")
+            video_type = scenes[0].get("type", "corporate")
+
+            # Map video_type to tone if tone not explicitly provided
+            if tone == "professional" and video_type:
+                tone_map = {
+                    "social": "upbeat",
+                    "product_demo": "professional",
+                    "explainer": "calm",
+                    "ad": "upbeat",
+                    "corporate": "professional"
+                }
+                tone = tone_map.get(video_type, "professional")
+
+            # Calculate total duration
+            total_duration = sum(scene.get("duration", 4) for scene in scenes)
+
+            # Check for custom music path first
+            music_path = None
+            for scene in scenes:
+                if "music_path" in scene:
+                    music_path = Path(scene["music_path"])
+                    break
+
+            # If no custom music, select from library using MusicSelectionTool
+            if not music_path:
+                logger.info("selecting_music_from_library", tone=tone, duration=total_duration)
+
+                music_result = self.music_selector.select_music(
+                    tone=tone,
+                    duration=total_duration
+                )
+
+                if music_result.get("success"):
+                    music_path = Path(music_result["audio_path"])
+                    logger.info("music_selected",
+                               tone=tone,
+                               file=music_result["filename"])
+                else:
+                    logger.warning("music_selection_failed",
+                                  error=music_result.get("error"))
+
+            # Add music if we have a path
+            if music_path and music_path.exists():
+                logger.info("adding_background_music", music_path=str(music_path))
+
+                music_output = output_path.parent / "with_music.mp4"
+                music_result = self.ffmpeg.add_background_music(
+                    video_path=current_path,
+                    audio_path=music_path,
+                    output_path=music_output,
+                    volume=0.3,
+                    fade_in=1.0,
+                    fade_out=1.0
+                )
+
+                if music_result.get("success"):
+                    current_path = music_output
+                    logger.info("background_music_added", output=str(music_output))
+
+                    # Save music edit to database for each scene asset
+                    for asset_id in asset_ids:
+                        try:
+                            edit_params = {
+                                "track": os.path.basename(str(music_path)),
+                                "volume": 0.3,
+                                "fade_in": 1.0,
+                                "fade_out": 1.0,
+                                "tone": tone,
+                                "duration": total_duration
+                            }
+
+                            edit_metadata = {
+                                "applied_to": "final_video",
+                                "music_path": str(music_path),
+                                "scene_count": len(scenes)
+                            }
+
+                            edit_id = self.storage.save_media_edit(
+                                asset_id=asset_id,
+                                edit_type="music",
+                                parameters=edit_params,
+                                result_path=str(music_output),
+                                metadata=edit_metadata
+                            )
+
+                            logger.info(
+                                "music_edit_saved",
+                                asset_id=asset_id,
+                                edit_id=edit_id
+                            )
+
+                        except Exception as e:
+                            logger.error(
+                                "save_music_edit_failed",
+                                error=str(e),
+                                asset_id=asset_id
+                            )
+                else:
+                    logger.warning(
+                        "music_addition_failed",
+                        reason=music_result.get("error")
+                    )
+            else:
+                logger.info(
+                    "music_addition_skipped",
+                    reason="No music file available"
+                )
 
         # Move to final output path
         current_path.rename(output_path)
@@ -588,7 +919,9 @@ Generate ad video."""
             "scene_count": len(scenes),
             "total_cost": total_cost,
             "has_captions": add_captions,
-            "has_watermark": watermark_path is not None
+            "has_watermark": watermark_path is not None,
+            "has_music": add_music,
+            "asset_ids": asset_ids
         }
 
 
