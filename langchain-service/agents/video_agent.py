@@ -11,6 +11,7 @@ from tools.pika_tool import PikaTool, create_pika_langchain_tool
 from tools.ffmpeg_tool import FFmpegTool, create_ffmpeg_langchain_tool
 from tools.video_download_tool import VideoDownloadTool, create_video_download_langchain_tool
 from tools.music_selection_tool import MusicSelectionTool, create_music_selection_langchain_tool
+from storage.postgres_storage import PostgreSQLStorage
 import structlog
 from datetime import datetime
 from pathlib import Path
@@ -261,6 +262,9 @@ Music will be trimmed if track is longer than video."""
         self.ffmpeg = FFmpegTool()
         self.downloader = VideoDownloadTool()
         self.music_selector = MusicSelectionTool()
+
+        # Initialize storage
+        self.storage = PostgreSQLStorage()
 
         logger.info("video_agent_initialized")
 
@@ -658,6 +662,7 @@ Generate ad video."""
         # Generate each scene
         scene_paths = []
         total_cost = 0
+        asset_ids = []
 
         for i, scene in enumerate(scenes, 1):
             logger.info(f"generating_scene", scene=i, total=len(scenes))
@@ -687,6 +692,46 @@ Generate ad video."""
                 if download_result.get("success"):
                     scene_paths.append(scene_path)
                     total_cost += result.get("cost", 0)
+
+                    # Save video to database
+                    try:
+                        asset_metadata = {
+                            "scene_number": i,
+                            "total_scenes": len(scenes),
+                            "download_timestamp": datetime.utcnow().isoformat(),
+                            "file_size": download_result.get("size_bytes"),
+                            "duration": scene.get("duration"),
+                            "prompt": scene["prompt"]
+                        }
+
+                        asset_id = self.storage.save_media_asset(
+                            draft_id=None,
+                            asset_type="video",
+                            file_path=str(scene_path),
+                            url=video_url,
+                            prompt=scene["prompt"],
+                            provider=provider,
+                            metadata=asset_metadata,
+                            cost=result.get("cost", 0)
+                        )
+
+                        asset_ids.append(asset_id)
+
+                        logger.info(
+                            "video_saved_to_database",
+                            asset_id=asset_id,
+                            scene=i,
+                            file_path=str(scene_path)
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            "video_save_to_database_failed",
+                            error=str(e),
+                            scene=i,
+                            file_path=str(scene_path)
+                        )
+
                 else:
                     logger.error(
                         "scene_download_failed",
@@ -802,7 +847,8 @@ Generate ad video."""
             "total_cost": total_cost,
             "has_captions": add_captions,
             "has_watermark": watermark_path is not None,
-            "has_music": add_music
+            "has_music": add_music,
+            "asset_ids": asset_ids
         }
 
 
