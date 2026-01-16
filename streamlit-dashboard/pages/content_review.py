@@ -127,6 +127,34 @@ def get_draft_feedback(draft_id: int) -> List[Dict]:
         return []
 
 
+def add_optimistic_feedback(draft_id: int, action: str, feedback_text: str = "",
+                           rating: Optional[int] = None, suggested_edits: Optional[List] = None):
+    """Add optimistic feedback to session state before API call"""
+    if 'optimistic_feedback' not in st.session_state:
+        st.session_state['optimistic_feedback'] = {}
+
+    if draft_id not in st.session_state['optimistic_feedback']:
+        st.session_state['optimistic_feedback'][draft_id] = []
+
+    # Create optimistic feedback entry
+    optimistic_entry = {
+        'reviewer': f"User {st.session_state.get('user_id', 1)}",
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'feedback_text': feedback_text or f"Action: {action}",
+        'rating': rating,
+        'suggested_edits': suggested_edits or [],
+        'action': action
+    }
+
+    st.session_state['optimistic_feedback'][draft_id].insert(0, optimistic_entry)
+
+
+def remove_optimistic_feedback(draft_id: int):
+    """Remove optimistic feedback after successful API call or on failure"""
+    if 'optimistic_feedback' in st.session_state and draft_id in st.session_state['optimistic_feedback']:
+        st.session_state['optimistic_feedback'][draft_id] = []
+
+
 def submit_review_feedback(draft_id: int, action: str, feedback_text: str = "",
                           rating: Optional[int] = None, suggested_edits: Optional[List] = None):
     """Submit review feedback via n8n webhook"""
@@ -199,6 +227,8 @@ def main():
         st.session_state['selected_draft_id'] = None
     if 'edited_content' not in st.session_state:
         st.session_state['edited_content'] = ""
+    if 'optimistic_feedback' not in st.session_state:
+        st.session_state['optimistic_feedback'] = {}
 
     # Layout: Sidebar for draft list, main area for review
     col_sidebar, col_main = st.columns([1, 3])
@@ -391,24 +421,40 @@ def show_edit_tab(draft: Dict):
 
     with col1:
         if st.button("✅ Approve & Publish", type="primary", use_container_width=True):
-            result = submit_review_feedback(
+            # Add optimistic feedback immediately
+            add_optimistic_feedback(
                 draft_id=draft['id'],
                 action='approve',
                 feedback_text=feedback_text,
                 rating=rating
             )
 
+            with st.spinner("Approving content and queueing for publishing..."):
+                result = submit_review_feedback(
+                    draft_id=draft['id'],
+                    action='approve',
+                    feedback_text=feedback_text,
+                    rating=rating
+                )
+
+            # Remove optimistic feedback after API call
+            remove_optimistic_feedback(draft['id'])
+
             if result:
                 st.success("✅ Content approved and queued for publishing!")
                 st.balloons()
                 st.session_state['selected_draft_id'] = None
+                st.rerun()
+            else:
+                # Rollback was already done by remove_optimistic_feedback
                 st.rerun()
 
     with col2:
         if st.button("🔄 Request Revisions", use_container_width=True):
             suggested_edits = st.session_state.get('suggested_edits', [])
 
-            result = submit_review_feedback(
+            # Add optimistic feedback immediately
+            add_optimistic_feedback(
                 draft_id=draft['id'],
                 action='revise',
                 feedback_text=feedback_text,
@@ -416,26 +462,56 @@ def show_edit_tab(draft: Dict):
                 suggested_edits=suggested_edits
             )
 
+            with st.spinner("Submitting revision request..."):
+                result = submit_review_feedback(
+                    draft_id=draft['id'],
+                    action='revise',
+                    feedback_text=feedback_text,
+                    rating=rating,
+                    suggested_edits=suggested_edits
+                )
+
+            # Remove optimistic feedback after API call
+            remove_optimistic_feedback(draft['id'])
+
             if result:
                 st.success("🔄 Revision request sent to AI agent!")
                 st.info("A new version will be generated based on your feedback")
                 st.session_state['suggested_edits'] = []
                 st.session_state['selected_draft_id'] = None
                 st.rerun()
+            else:
+                # Rollback was already done by remove_optimistic_feedback
+                st.rerun()
 
     with col3:
         if st.button("❌ Reject", use_container_width=True):
             if feedback_text:
-                result = submit_review_feedback(
+                # Add optimistic feedback immediately
+                add_optimistic_feedback(
                     draft_id=draft['id'],
                     action='reject',
                     feedback_text=feedback_text,
                     rating=rating
                 )
 
+                with st.spinner("Rejecting content..."):
+                    result = submit_review_feedback(
+                        draft_id=draft['id'],
+                        action='reject',
+                        feedback_text=feedback_text,
+                        rating=rating
+                    )
+
+                # Remove optimistic feedback after API call
+                remove_optimistic_feedback(draft['id'])
+
                 if result:
                     st.warning("❌ Content rejected")
                     st.session_state['selected_draft_id'] = None
+                    st.rerun()
+                else:
+                    # Rollback was already done by remove_optimistic_feedback
                     st.rerun()
             else:
                 st.error("Please provide feedback explaining why you're rejecting this content")
@@ -443,20 +519,21 @@ def show_edit_tab(draft: Dict):
     with col4:
         if st.button("💾 Save Draft", use_container_width=True):
             # Update draft in database with edited content
-            conn = get_db_connection()
-            if conn:
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("""
-                            UPDATE content_drafts
-                            SET content = %s, updated_at = NOW()
-                            WHERE id = %s
-                        """, (st.session_state['edited_content'], draft['id']))
+            with st.spinner("Saving draft..."):
+                conn = get_db_connection()
+                if conn:
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE content_drafts
+                                SET content = %s, updated_at = NOW()
+                                WHERE id = %s
+                            """, (st.session_state['edited_content'], draft['id']))
 
-                        conn.commit()
-                        st.success("💾 Draft saved!")
-                except Exception as e:
-                    st.error(f"Error saving draft: {str(e)}")
+                            conn.commit()
+                            st.success("💾 Draft saved!")
+                    except Exception as e:
+                        st.error(f"Error saving draft: {str(e)}")
 
 
 def show_versions_tab(draft: Dict):
@@ -513,12 +590,39 @@ def show_feedback_tab(draft: Dict):
 
     feedback_list = get_draft_feedback(draft['id'])
 
-    if not feedback_list:
+    # Get optimistic feedback for this draft
+    optimistic_feedback_list = st.session_state.get('optimistic_feedback', {}).get(draft['id'], [])
+
+    total_count = len(feedback_list) + len(optimistic_feedback_list)
+
+    if total_count == 0:
         st.info("No feedback yet")
         return
 
-    st.markdown(f"### Feedback History ({len(feedback_list)} entries)")
+    st.markdown(f"### Feedback History ({total_count} entries)")
 
+    # Display optimistic feedback first (most recent)
+    for feedback in optimistic_feedback_list:
+        with st.container():
+            col1, col2 = st.columns([3, 1])
+
+            with col1:
+                st.markdown(f"**{feedback['reviewer']}** - {feedback['created_at']} ⏳ *Pending...*")
+
+            with col2:
+                if feedback.get('rating'):
+                    st.markdown("⭐" * feedback['rating'])
+
+            st.markdown(feedback['feedback_text'])
+
+            if feedback.get('suggested_edits'):
+                with st.expander("View suggested edits"):
+                    for edit in feedback['suggested_edits']:
+                        st.markdown(f"- **{edit.get('section', 'General')}**: {edit.get('suggestion', '')}")
+
+            st.markdown("---")
+
+    # Display confirmed feedback from database
     for feedback in feedback_list:
         with st.container():
             col1, col2 = st.columns([3, 1])
