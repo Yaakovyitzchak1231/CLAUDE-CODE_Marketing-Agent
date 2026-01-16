@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import pandas as pd
 import calendar
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Page configuration
 st.set_page_config(
@@ -188,6 +190,159 @@ def update_content_schedule(draft_id: int, new_scheduled_at: datetime) -> bool:
         st.error(f"Error updating schedule: {str(e)}")
         conn.rollback()
         return False
+
+
+@st.cache_data(ttl=300)
+def get_calendar_statistics(campaign_id: Optional[int] = None,
+                           date_from: Optional[datetime] = None,
+                           date_to: Optional[datetime] = None) -> Dict:
+    """Get calendar statistics including breakdowns by channel and content type"""
+    conn = get_db_connection()
+    if not conn:
+        return {}
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            # Build base query with filters
+            params = []
+            where_clauses = ["cd.scheduled_at IS NOT NULL"]
+
+            if campaign_id:
+                where_clauses.append("cd.campaign_id = %s")
+                params.append(campaign_id)
+
+            if date_from:
+                where_clauses.append("cd.scheduled_at >= %s")
+                params.append(date_from)
+
+            if date_to:
+                where_clauses.append("cd.scheduled_at <= %s")
+                params.append(date_to)
+
+            where_clause = " AND ".join(where_clauses)
+
+            # Get breakdown by channel
+            cursor.execute(f"""
+                SELECT
+                    COALESCE(pc.channel, 'unassigned') as channel,
+                    COUNT(DISTINCT cd.id) as scheduled_count,
+                    COUNT(DISTINCT CASE WHEN pc.published_at IS NOT NULL THEN pc.id END) as published_count
+                FROM content_drafts cd
+                LEFT JOIN published_content pc ON cd.id = pc.draft_id
+                WHERE {where_clause}
+                GROUP BY pc.channel
+                ORDER BY scheduled_count DESC
+            """, params)
+            channel_breakdown = cursor.fetchall()
+
+            # Get breakdown by content type
+            cursor.execute(f"""
+                SELECT
+                    cd.type as content_type,
+                    COUNT(DISTINCT cd.id) as scheduled_count,
+                    COUNT(DISTINCT CASE WHEN pc.published_at IS NOT NULL THEN pc.id END) as published_count
+                FROM content_drafts cd
+                LEFT JOIN published_content pc ON cd.id = pc.draft_id
+                WHERE {where_clause}
+                GROUP BY cd.type
+                ORDER BY scheduled_count DESC
+            """, params)
+            type_breakdown = cursor.fetchall()
+
+            # Get overall statistics
+            cursor.execute(f"""
+                SELECT
+                    COUNT(DISTINCT cd.id) as total_scheduled,
+                    COUNT(DISTINCT CASE WHEN pc.published_at IS NOT NULL THEN pc.id END) as total_published,
+                    COUNT(DISTINCT CASE WHEN pc.published_at IS NULL THEN cd.id END) as total_pending,
+                    COUNT(DISTINCT COALESCE(pc.channel, 'unassigned')) as unique_channels,
+                    COUNT(DISTINCT cd.campaign_id) as campaigns_count
+                FROM content_drafts cd
+                LEFT JOIN published_content pc ON cd.id = pc.draft_id
+                WHERE {where_clause}
+            """, params)
+            overall = cursor.fetchone()
+
+            return {
+                'channel_breakdown': channel_breakdown if channel_breakdown else [],
+                'type_breakdown': type_breakdown if type_breakdown else [],
+                'overall': overall if overall else {}
+            }
+    except Exception as e:
+        st.error(f"Error fetching calendar statistics: {str(e)}")
+        return {}
+
+
+@st.cache_data(ttl=300)
+def get_unscheduled_content(campaign_id: Optional[int] = None) -> pd.DataFrame:
+    """Get content drafts that don't have a scheduled date yet"""
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            query = """
+                SELECT
+                    cd.id,
+                    cd.type as content_type,
+                    cd.content,
+                    cd.status,
+                    cd.created_at,
+                    c.id as campaign_id,
+                    c.name as campaign_name,
+                    c.status as campaign_status
+                FROM content_drafts cd
+                LEFT JOIN campaigns c ON cd.campaign_id = c.id
+                WHERE cd.scheduled_at IS NULL
+                  AND cd.status IN ('draft', 'approved')
+            """
+            params = []
+
+            if campaign_id:
+                query += " AND cd.campaign_id = %s"
+                params.append(campaign_id)
+
+            query += " ORDER BY cd.created_at DESC LIMIT 50"
+
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+
+            return pd.DataFrame(results) if results else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error fetching unscheduled content: {str(e)}")
+        return pd.DataFrame()
+
+
+def bulk_schedule_content(content_ids: List[int], scheduled_at: datetime) -> Dict[str, int]:
+    """Schedule multiple content items at once"""
+    conn = get_db_connection()
+    if not conn:
+        return {'success': 0, 'failed': 0}
+
+    success_count = 0
+    failed_count = 0
+
+    try:
+        with conn.cursor() as cursor:
+            for content_id in content_ids:
+                try:
+                    cursor.execute("""
+                        UPDATE content_drafts
+                        SET scheduled_at = %s
+                        WHERE id = %s
+                    """, (scheduled_at, content_id))
+                    success_count += 1
+                except Exception:
+                    failed_count += 1
+
+            conn.commit()
+    except Exception as e:
+        st.error(f"Error in bulk scheduling: {str(e)}")
+        conn.rollback()
+        failed_count = len(content_ids)
+
+    return {'success': success_count, 'failed': failed_count}
 
 
 def main():
@@ -431,6 +586,13 @@ def main():
         channel=selected_channel
     )
 
+    # Fetch calendar statistics
+    calendar_stats = get_calendar_statistics(
+        campaign_id=selected_campaign_id,
+        date_from=first_day,
+        date_to=last_day
+    )
+
     # Display statistics
     col1, col2, col3, col4 = st.columns(4)
 
@@ -458,6 +620,194 @@ def main():
         else:
             unique_channels = 0
         st.metric("Active Channels", unique_channels)
+
+    st.markdown("---")
+
+    # Display breakdown statistics with charts
+    if calendar_stats:
+        col_left, col_right = st.columns(2)
+
+        with col_left:
+            st.markdown("### 📊 Breakdown by Channel")
+            channel_data = calendar_stats.get('channel_breakdown', [])
+            if channel_data:
+                df_channel = pd.DataFrame(channel_data)
+
+                # Create channel breakdown chart
+                fig_channel = go.Figure(data=[
+                    go.Bar(
+                        name='Scheduled',
+                        x=df_channel['channel'],
+                        y=df_channel['scheduled_count'],
+                        marker_color='#6366F1'
+                    ),
+                    go.Bar(
+                        name='Published',
+                        x=df_channel['channel'],
+                        y=df_channel['published_count'],
+                        marker_color='#10B981'
+                    )
+                ])
+
+                fig_channel.update_layout(
+                    barmode='group',
+                    height=300,
+                    margin=dict(l=20, r=20, t=20, b=20),
+                    xaxis_title="Channel",
+                    yaxis_title="Count",
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+
+                st.plotly_chart(fig_channel, use_container_width=True)
+
+                # Show channel breakdown table
+                with st.expander("View Channel Details"):
+                    for item in channel_data:
+                        channel = item['channel'].upper() if item['channel'] != 'unassigned' else 'UNASSIGNED'
+                        scheduled = item['scheduled_count']
+                        published = item['published_count']
+                        pending = scheduled - published
+
+                        st.markdown(f"**{channel}**: {scheduled} scheduled ({published} published, {pending} pending)")
+            else:
+                st.info("No channel data available for this period")
+
+        with col_right:
+            st.markdown("### 📝 Breakdown by Content Type")
+            type_data = calendar_stats.get('type_breakdown', [])
+            if type_data:
+                df_type = pd.DataFrame(type_data)
+
+                # Create content type breakdown chart
+                fig_type = go.Figure(data=[
+                    go.Bar(
+                        name='Scheduled',
+                        x=df_type['content_type'],
+                        y=df_type['scheduled_count'],
+                        marker_color='#8B5CF6'
+                    ),
+                    go.Bar(
+                        name='Published',
+                        x=df_type['content_type'],
+                        y=df_type['published_count'],
+                        marker_color='#10B981'
+                    )
+                ])
+
+                fig_type.update_layout(
+                    barmode='group',
+                    height=300,
+                    margin=dict(l=20, r=20, t=20, b=20),
+                    xaxis_title="Content Type",
+                    yaxis_title="Count",
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+
+                st.plotly_chart(fig_type, use_container_width=True)
+
+                # Show type breakdown table
+                with st.expander("View Content Type Details"):
+                    for item in type_data:
+                        content_type = item['content_type'].upper() if item['content_type'] else 'UNKNOWN'
+                        scheduled = item['scheduled_count']
+                        published = item['published_count']
+                        pending = scheduled - published
+
+                        st.markdown(f"**{content_type}**: {scheduled} scheduled ({published} published, {pending} pending)")
+            else:
+                st.info("No content type data available for this period")
+
+        st.markdown("---")
+
+    # Bulk scheduling section
+    with st.expander("🗓️ Bulk Schedule Content", expanded=False):
+        st.markdown("Schedule multiple content items at once")
+
+        # Fetch unscheduled content
+        unscheduled = get_unscheduled_content(campaign_id=selected_campaign_id)
+
+        if not unscheduled.empty:
+            st.markdown(f"**{len(unscheduled)} unscheduled items available**")
+
+            # Create a selection table
+            selected_items = []
+
+            for idx, item in unscheduled.iterrows():
+                col_check, col_info = st.columns([1, 9])
+
+                with col_check:
+                    is_selected = st.checkbox(
+                        "Select",
+                        key=f"bulk_select_{item['id']}",
+                        label_visibility="collapsed"
+                    )
+                    if is_selected:
+                        selected_items.append(item['id'])
+
+                with col_info:
+                    content_type = item['content_type'].upper() if pd.notna(item['content_type']) else "UNKNOWN"
+                    campaign_name = item['campaign_name'] if pd.notna(item['campaign_name']) else "No Campaign"
+                    st.markdown(f"**{content_type}** - {campaign_name}")
+
+                    if pd.notna(item['content']):
+                        preview = str(item['content'])[:80] + "..." if len(str(item['content'])) > 80 else str(item['content'])
+                        st.caption(preview)
+
+            st.markdown("---")
+
+            # Bulk schedule form
+            if selected_items:
+                st.markdown(f"**{len(selected_items)} items selected**")
+
+                with st.form(key="bulk_schedule_form"):
+                    bulk_date = st.date_input(
+                        "Schedule Date",
+                        value=datetime.now().date(),
+                        key="bulk_schedule_date"
+                    )
+
+                    bulk_time = st.time_input(
+                        "Schedule Time",
+                        value=datetime.now().time(),
+                        key="bulk_schedule_time"
+                    )
+
+                    submit_bulk = st.form_submit_button(
+                        "📅 Schedule Selected Items",
+                        use_container_width=True,
+                        type="primary"
+                    )
+
+                    if submit_bulk:
+                        bulk_scheduled_at = datetime.combine(bulk_date, bulk_time)
+                        result = bulk_schedule_content(selected_items, bulk_scheduled_at)
+
+                        if result['success'] > 0:
+                            st.success(f"✅ Successfully scheduled {result['success']} items!")
+                            if result['failed'] > 0:
+                                st.warning(f"⚠️ Failed to schedule {result['failed']} items")
+
+                            # Clear cache and rerun
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to schedule items")
+            else:
+                st.info("Select items above to enable bulk scheduling")
+        else:
+            st.info("No unscheduled content available. All content items have been scheduled!")
 
     st.markdown("---")
 
