@@ -705,7 +705,20 @@ if st.session_state.get('selected_asset_id'):
             if edits:
                 for edit in edits:
                     with st.expander(f"{edit['edit_type']} - {edit['created_at'].strftime('%Y-%m-%d %H:%M')}"):
-                        st.json(edit['edit_params'])
+                        # Display music metadata for music edits
+                        if edit['edit_type'] == 'add_music' and edit['edit_params']:
+                            params = edit['edit_params']
+                            if 'music_tone' in params:
+                                st.markdown(f"**Music Tone:** {params['music_tone']}")
+                            if 'music_file' in params:
+                                st.markdown(f"**Music File:** {params['music_file']}")
+                            if 'volume' in params:
+                                st.markdown(f"**Volume:** {params['volume']}")
+                            st.markdown("**All Parameters:**")
+                            st.json(params)
+                        else:
+                            st.json(edit['edit_params'])
+
                         if edit['edited_file_path']:
                             st.caption(f"Output: {edit['edited_file_path']}")
             else:
