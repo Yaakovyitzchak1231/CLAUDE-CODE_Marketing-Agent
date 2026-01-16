@@ -917,10 +917,6 @@
 
         // Current pending approval
         let pendingApproval = null;
-        let previouslyFocusedElement = null;
-        let focusableElements = [];
-        let firstFocusableElement = null;
-        let lastFocusableElement = null;
 
         // Set target directory
         async function setDirectory() {
@@ -959,9 +955,6 @@
         function showApproval(request) {
             pendingApproval = request;
 
-            // Store currently focused element to return to later
-            previouslyFocusedElement = document.activeElement;
-
             document.getElementById('approval-title').textContent = request.title || 'Approval Required';
             document.getElementById('approval-type').textContent = request.approval_type || 'action';
             document.getElementById('approval-description').textContent = request.description || '';
@@ -971,43 +964,6 @@
                     : JSON.stringify(request.details, null, 2);
 
             document.getElementById('approval-modal').classList.add('active');
-
-            // Set up focus trap
-            setupFocusTrap();
-
-            // Set initial focus to first button (Reject)
-            const rejectBtn = document.querySelector('.approval-btn.reject');
-            if (rejectBtn) {
-                rejectBtn.focus();
-            }
-        }
-
-        // Set up focus trapping within the modal
-        function setupFocusTrap() {
-            const modal = document.getElementById('approval-modal');
-            const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-            focusableElements = Array.from(modal.querySelectorAll(focusableSelector));
-            firstFocusableElement = focusableElements[0];
-            lastFocusableElement = focusableElements[focusableElements.length - 1];
-        }
-
-        // Trap focus within modal on Tab/Shift+Tab
-        function trapFocus(e) {
-            if (e.key !== 'Tab') return;
-
-            if (e.shiftKey) {
-                // Shift+Tab: moving backwards
-                if (document.activeElement === firstFocusableElement) {
-                    e.preventDefault();
-                    lastFocusableElement.focus();
-                }
-            } else {
-                // Tab: moving forwards
-                if (document.activeElement === lastFocusableElement) {
-                    e.preventDefault();
-                    firstFocusableElement.focus();
-                }
-            }
         }
 
         // Handle approval response
@@ -1043,24 +999,8 @@
                 console.error('Error sending approval:', error);
             }
 
-            // Close modal and return focus
-            closeModal();
-        }
-
-        // Close modal and return focus to triggering element
-        function closeModal() {
             document.getElementById('approval-modal').classList.remove('active');
-
-            // Return focus to the element that triggered the modal
-            if (previouslyFocusedElement) {
-                previouslyFocusedElement.focus();
-            }
-
             pendingApproval = null;
-            previouslyFocusedElement = null;
-            focusableElements = [];
-            firstFocusableElement = null;
-            lastFocusableElement = null;
         }
 
         // Update subagent status
@@ -1113,18 +1053,11 @@
             originalHandleEvent(event);
         };
 
-        // Handle keyboard events for modal
+        // Close modal on escape key
         document.addEventListener('keydown', function(e) {
-            if (!pendingApproval) return;
-
-            // Close modal on Escape key
-            if (e.key === 'Escape') {
+            if (e.key === 'Escape' && pendingApproval) {
                 handleApproval(false);
-                return;
             }
-
-            // Trap focus within modal on Tab/Shift+Tab
-            trapFocus(e);
         });
     </script>
 </body>
