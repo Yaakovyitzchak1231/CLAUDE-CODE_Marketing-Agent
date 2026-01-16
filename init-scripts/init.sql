@@ -45,6 +45,18 @@ CREATE INDEX idx_campaigns_user ON campaigns(user_id);
 CREATE INDEX idx_campaigns_status ON campaigns(status);
 CREATE INDEX idx_campaigns_created_at ON campaigns(created_at DESC);
 
+CREATE TABLE brand_voice_profiles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    campaign_id UUID REFERENCES campaigns(id) ON DELETE CASCADE,
+    profile_name VARCHAR(255) NOT NULL,
+    example_content TEXT,  -- Sample content used for training the brand voice
+    calculated_profile JSONB,  -- AI-analyzed brand voice characteristics (tone, style, vocabulary)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_brand_voice_profiles_campaign ON brand_voice_profiles(campaign_id);
+CREATE INDEX idx_brand_voice_profiles_name ON brand_voice_profiles(profile_name);
+
 -- ==================== CONTENT MANAGEMENT ====================
 
 CREATE TABLE content_drafts (
