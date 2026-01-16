@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
 
+    # API Cost Budgets
+    MONTHLY_IMAGE_BUDGET: float = 100.0  # USD per month for DALL-E/Midjourney
+    MONTHLY_VIDEO_BUDGET: float = 200.0  # USD per month for Runway/Pika
+    MONTHLY_TOTAL_API_BUDGET: float = 500.0  # USD per month total API spend
+
     class Config:
         env_file = ".env"
         case_sensitive = True
