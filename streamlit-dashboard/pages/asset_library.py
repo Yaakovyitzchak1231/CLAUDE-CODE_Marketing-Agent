@@ -411,8 +411,13 @@ def render_asset_card(asset: Dict):
         st.session_state['selected_assets'].remove(asset['id'])
 
     # Asset thumbnail
-    if asset['url']:
-        st.image(asset['url'])
+    media_source = asset['url'] or asset['file_path']
+
+    if media_source:
+        if asset['type'] == 'video':
+            st.video(media_source)
+        else:
+            st.image(media_source)
     else:
         st.markdown(f"**{asset['type'].upper()}**")
         st.caption(f"No preview available")
@@ -464,8 +469,13 @@ def render_asset_list_item(asset: Dict):
 
         with col2:
             # Thumbnail
-            if asset['url']:
-                st.image(asset['url'], width=150)
+            media_source = asset['url'] or asset['file_path']
+
+            if media_source:
+                if asset['type'] == 'video':
+                    st.video(media_source)
+                else:
+                    st.image(media_source, width=150)
             else:
                 st.markdown(f"**{asset['type'].upper()}**")
 
@@ -554,11 +564,13 @@ if st.session_state.get('selected_asset_id'):
         with col1:
             # Asset preview
             st.subheader("Preview")
-            if asset_detail['url']:
+            media_source = asset_detail['url'] or asset_detail['file_path']
+
+            if media_source:
                 if asset_detail['type'] == 'image':
-                    st.image(asset_detail['url'])
+                    st.image(media_source)
                 elif asset_detail['type'] == 'video':
-                    st.video(asset_detail['url'])
+                    st.video(media_source)
             else:
                 st.info("No preview available")
 
