@@ -303,7 +303,7 @@ def show_dashboard():
     st.markdown("---")
     st.subheader("Quick Actions")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         if st.button("Content Review", use_container_width=True):
@@ -320,6 +320,10 @@ def show_dashboard():
     with col4:
         if st.button("Trend Analysis", use_container_width=True):
             st.switch_page("pages/trends.py")
+
+    with col5:
+        if st.button("Brand Voice Training", use_container_width=True):
+            st.switch_page("pages/brand_voice_training.py")
 
 
 if __name__ == "__main__":

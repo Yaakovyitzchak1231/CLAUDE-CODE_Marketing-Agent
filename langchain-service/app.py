@@ -30,6 +30,9 @@ from chains.video_script_builder import create_video_script_builder
 # Tool and utility imports
 from config import settings, create_llm
 
+# API route imports
+from api.brand_voice import router as brand_voice_router
+
 logger = structlog.get_logger()
 
 # Initialize FastAPI app
@@ -49,6 +52,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register API routers
+app.include_router(brand_voice_router)
 
 # Initialize LLM (OpenAI if configured, else Ollama)
 llm = create_llm()
@@ -119,6 +125,7 @@ class ContentCreationRequest(BaseModel):
     tone: str = Field(default="professional", description="Tone of voice")
     keywords: Optional[List[str]] = Field(default=None, description="Target keywords")
     length: Optional[int] = Field(default=None, description="Target word count")
+    brand_voice_profile_id: Optional[str] = Field(default=None, description="UUID of brand voice profile to apply")
 
 
 class ImageGenerationRequest(BaseModel):
@@ -347,29 +354,41 @@ async def run_content_creation(request: ContentCreationRequest):
     Creates blog posts, LinkedIn posts, emails, and social media content
     """
     try:
-        logger.info("content_request", content_type=request.content_type, topic=request.topic)
+        logger.info(
+            "content_request",
+            content_type=request.content_type,
+            topic=request.topic,
+            brand_voice_profile_id=request.brand_voice_profile_id
+        )
+
+        # Create content agent with brand voice profile if provided
+        # This allows per-request brand voice customization
+        if request.brand_voice_profile_id:
+            content_agent = create_content_agent(brand_voice_profile_id=request.brand_voice_profile_id)
+        else:
+            content_agent = agents["content"]
 
         if request.content_type == "blog":
-            result = agents["content"].create_blog_post(
+            result = content_agent.create_blog_post(
                 topic=request.topic,
                 target_audience=request.target_audience,
                 keywords=request.keywords or [],
                 word_count=request.length or 1500
             )
         elif request.content_type == "linkedin_post":
-            result = agents["content"].create_linkedin_post(
+            result = content_agent.create_linkedin_post(
                 topic=request.topic,
                 target_audience=request.target_audience,
                 tone=request.tone
             )
         elif request.content_type == "email":
-            result = agents["content"].create_email_campaign(
+            result = content_agent.create_email_campaign(
                 campaign_topic=request.topic,
                 target_audience=request.target_audience,
                 email_count=3
             )
         else:  # social_post
-            result = agents["content"].create_social_post(
+            result = content_agent.create_social_post(
                 topic=request.topic,
                 platform=request.platform if hasattr(request, 'platform') else "linkedin",
                 target_audience=request.target_audience
