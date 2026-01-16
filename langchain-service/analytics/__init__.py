@@ -9,6 +9,7 @@ This module provides mathematically-grounded algorithms for:
 - SEO optimization
 - A/B testing
 - Attribution modeling
+- Cost tracking
 
 ALL algorithms are:
 - Deterministic (same input = same output)
@@ -72,6 +73,11 @@ from .attribution import (
     position_based_attribution,
 )
 
+from .cost_scorer import (
+    CostScorer,
+    calculate_api_cost,
+)
+
 __all__ = [
     # Engagement
     'EngagementScorer',
@@ -114,4 +120,8 @@ __all__ = [
     'linear_attribution',
     'time_decay_attribution',
     'position_based_attribution',
+
+    # Cost Tracking
+    'CostScorer',
+    'calculate_api_cost',
 ]
