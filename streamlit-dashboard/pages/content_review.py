@@ -407,15 +407,16 @@ def show_edit_tab(draft: Dict):
 
     with col2:
         if st.button("🔄 Request Revisions", use_container_width=True):
-            suggested_edits = st.session_state.get('suggested_edits', [])
+            with st.spinner("Submitting revision request..."):
+                suggested_edits = st.session_state.get('suggested_edits', [])
 
-            result = submit_review_feedback(
-                draft_id=draft['id'],
-                action='revise',
-                feedback_text=feedback_text,
-                rating=rating,
-                suggested_edits=suggested_edits
-            )
+                result = submit_review_feedback(
+                    draft_id=draft['id'],
+                    action='revise',
+                    feedback_text=feedback_text,
+                    rating=rating,
+                    suggested_edits=suggested_edits
+                )
 
             if result:
                 st.success("🔄 Revision request sent to AI agent!")
