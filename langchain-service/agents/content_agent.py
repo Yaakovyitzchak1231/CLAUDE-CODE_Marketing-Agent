@@ -29,6 +29,13 @@ try:
 except ImportError:
     ANALYTICS_AVAILABLE = False
 
+# Import brand voice storage
+try:
+    from storage.brand_voice_storage import create_brand_voice_storage
+    STORAGE_AVAILABLE = True
+except ImportError:
+    STORAGE_AVAILABLE = False
+
 logger = structlog.get_logger()
 
 
@@ -47,8 +54,39 @@ class ContentAgent(BaseAgent):
     - Brand voice consistency
     """
 
-    def __init__(self):
-        """Initialize Content Agent"""
+    def __init__(self, brand_voice_profile_id: Optional[str] = None):
+        """Initialize Content Agent
+
+        Args:
+            brand_voice_profile_id: Optional UUID of brand voice profile to apply
+        """
+
+        # Initialize brand voice profile
+        self.brand_voice_profile = None
+        self.brand_voice_profile_id = brand_voice_profile_id
+
+        # Load brand voice profile if provided
+        if brand_voice_profile_id and STORAGE_AVAILABLE:
+            try:
+                storage = create_brand_voice_storage()
+                self.brand_voice_profile = storage.get_profile(brand_voice_profile_id)
+                if self.brand_voice_profile:
+                    logger.info(
+                        "brand_voice_profile_loaded",
+                        profile_id=brand_voice_profile_id,
+                        profile_name=self.brand_voice_profile.get('profile_name')
+                    )
+                else:
+                    logger.warning(
+                        "brand_voice_profile_not_found",
+                        profile_id=brand_voice_profile_id
+                    )
+            except Exception as e:
+                logger.error(
+                    "brand_voice_profile_load_error",
+                    profile_id=brand_voice_profile_id,
+                    error=str(e)
+                )
 
         # Initialize vector store for RAG
         vector_store = get_vector_store()
@@ -356,7 +394,7 @@ Maintain original message and key points."""
 
     def get_specialized_prompt(self) -> str:
         """Get Content Agent system prompt"""
-        return """You are a Content Creation Agent specializing in B2B marketing content.
+        base_prompt = """You are a Content Creation Agent specializing in B2B marketing content.
 
 Your primary responsibilities:
 1. Create compelling, well-researched content
@@ -402,6 +440,79 @@ Always provide:
 - SEO score estimate
 
 Be creative, data-driven, and audience-focused."""
+
+        # Add brand voice guidelines if profile is loaded
+        if self.brand_voice_profile:
+            calculated_profile = self.brand_voice_profile.get('calculated_profile', {})
+            profile_name = self.brand_voice_profile.get('profile_name', 'Brand Voice')
+
+            brand_voice_section = f"""
+
+═══════════════════════════════════════════════════════════════
+BRAND VOICE PROFILE: {profile_name}
+═══════════════════════════════════════════════════════════════
+
+CRITICAL: You MUST match this brand voice in all content you create.
+
+"""
+            # Add readability targets
+            readability = calculated_profile.get('readability_metrics', {})
+            if readability:
+                brand_voice_section += """READABILITY TARGETS:
+"""
+                if 'flesch_reading_ease' in readability:
+                    brand_voice_section += f"- Flesch Reading Ease: {readability['flesch_reading_ease']} ({readability.get('reading_level', 'standard')})\n"
+                if 'flesch_kincaid_grade' in readability:
+                    brand_voice_section += f"- Grade Level: {readability['flesch_kincaid_grade']}\n"
+                if 'avg_sentence_length' in readability:
+                    brand_voice_section += f"- Average Sentence Length: {readability['avg_sentence_length']} words\n"
+                brand_voice_section += "\n"
+
+            # Add tone characteristics
+            tone = calculated_profile.get('tone_analysis', {})
+            if tone:
+                brand_voice_section += """TONE CHARACTERISTICS:
+"""
+                if 'tone_assessment' in tone:
+                    brand_voice_section += f"- Overall Tone: {tone['tone_assessment']}\n"
+                if 'formality_ratio' in tone:
+                    brand_voice_section += f"- Formality Level: {tone['formality_ratio']}\n"
+                if 'jargon_density_pct' in tone:
+                    brand_voice_section += f"- Technical/Jargon Usage: {tone['jargon_density_pct']:.1f}%\n"
+                brand_voice_section += "\n"
+
+            # Add vocabulary characteristics
+            vocabulary = calculated_profile.get('vocabulary_analysis', {})
+            if vocabulary:
+                brand_voice_section += """VOCABULARY:
+"""
+                if 'lexical_diversity' in vocabulary:
+                    brand_voice_section += f"- Lexical Diversity: {vocabulary['lexical_diversity']:.2f}\n"
+                if 'unique_word_ratio' in vocabulary:
+                    brand_voice_section += f"- Unique Word Ratio: {vocabulary['unique_word_ratio']:.2f}\n"
+                brand_voice_section += "\n"
+
+            # Add example snippets if available
+            example_content = self.brand_voice_profile.get('example_content', '')
+            if example_content and len(example_content) > 0:
+                # Get first 500 chars as example
+                example_snippet = example_content[:500] + "..." if len(example_content) > 500 else example_content
+                brand_voice_section += f"""EXAMPLE CONTENT (Study this voice):
+{example_snippet}
+
+"""
+
+            brand_voice_section += """IMPORTANT:
+- Match the readability, tone, and vocabulary patterns shown above
+- Maintain consistency with the example content style
+- Use similar sentence structures and word choices
+- Keep the same level of formality and technical depth
+
+═══════════════════════════════════════════════════════════════
+"""
+            base_prompt += brand_voice_section
+
+        return base_prompt
 
     def create_blog_post(
         self,
@@ -745,6 +856,14 @@ Maintain original structure unless feedback requires change."""
         return result
 
 
-def create_content_agent() -> ContentAgent:
-    """Factory function to create Content Agent"""
-    return ContentAgent()
+def create_content_agent(brand_voice_profile_id: Optional[str] = None) -> ContentAgent:
+    """
+    Factory function to create Content Agent
+
+    Args:
+        brand_voice_profile_id: Optional UUID of brand voice profile to apply
+
+    Returns:
+        ContentAgent instance
+    """
+    return ContentAgent(brand_voice_profile_id=brand_voice_profile_id)

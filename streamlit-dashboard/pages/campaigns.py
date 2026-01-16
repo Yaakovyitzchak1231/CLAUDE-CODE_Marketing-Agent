@@ -87,13 +87,15 @@ def get_campaign_details(campaign_id: int) -> Optional[Dict]:
             cursor.execute("""
                 SELECT
                     c.id, c.user_id, c.name, c.status, c.target_audience,
-                    c.branding_json, c.created_at,
+                    c.branding_json, c.brand_voice_profile_id, c.created_at,
+                    bvp.profile_name, bvp.calculated_profile,
                     (SELECT COUNT(*) FROM content_drafts WHERE campaign_id = c.id) as total_content,
                     (SELECT COUNT(*) FROM content_drafts WHERE campaign_id = c.id AND status = 'draft') as draft_count,
                     (SELECT COUNT(*) FROM content_drafts WHERE campaign_id = c.id AND status = 'in_review') as review_count,
                     (SELECT COUNT(*) FROM content_drafts WHERE campaign_id = c.id AND status = 'approved') as approved_count,
                     (SELECT COUNT(*) FROM content_drafts WHERE campaign_id = c.id AND status = 'published') as published_count
                 FROM campaigns c
+                LEFT JOIN brand_voice_profiles bvp ON c.brand_voice_profile_id = bvp.id
                 WHERE c.id = %s
             """, (campaign_id,))
             return cursor.fetchone()
@@ -135,8 +137,54 @@ def get_campaign_content(campaign_id: int, status: Optional[str] = None) -> List
         return []
 
 
+def get_brand_voice_profiles(campaign_id: Optional[int] = None) -> List[Dict]:
+    """Fetch brand voice profiles, optionally filtered by campaign"""
+    conn = get_db_connection()
+    if not conn:
+        return []
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            if campaign_id:
+                cursor.execute("""
+                    SELECT id, campaign_id, profile_name, example_content, calculated_profile, created_at
+                    FROM brand_voice_profiles
+                    WHERE campaign_id = %s
+                    ORDER BY created_at DESC
+                """, (campaign_id,))
+            else:
+                cursor.execute("""
+                    SELECT id, campaign_id, profile_name, example_content, calculated_profile, created_at
+                    FROM brand_voice_profiles
+                    ORDER BY created_at DESC
+                """)
+            return cursor.fetchall()
+    except Exception as e:
+        st.error(f"Error fetching brand voice profiles: {str(e)}")
+        return []
+
+
+def get_brand_voice_profile(profile_id: str) -> Optional[Dict]:
+    """Get a specific brand voice profile by ID"""
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute("""
+                SELECT id, campaign_id, profile_name, example_content, calculated_profile, created_at
+                FROM brand_voice_profiles
+                WHERE id = %s
+            """, (profile_id,))
+            return cursor.fetchone()
+    except Exception as e:
+        st.error(f"Error fetching brand voice profile: {str(e)}")
+        return None
+
+
 def create_campaign(name: str, target_audience: str, branding_json: Dict,
-                   user_id: int = 1) -> Optional[int]:
+                   user_id: int = 1, brand_voice_profile_id: Optional[str] = None) -> Optional[int]:
     """Create a new campaign"""
     conn = get_db_connection()
     if not conn:
@@ -145,10 +193,10 @@ def create_campaign(name: str, target_audience: str, branding_json: Dict,
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
-                INSERT INTO campaigns (user_id, name, target_audience, branding_json, status)
-                VALUES (%s, %s, %s, %s, 'active')
+                INSERT INTO campaigns (user_id, name, target_audience, branding_json, status, brand_voice_profile_id)
+                VALUES (%s, %s, %s, %s, 'active', %s)
                 RETURNING id
-            """, (user_id, name, target_audience, json.dumps(branding_json)))
+            """, (user_id, name, target_audience, json.dumps(branding_json), brand_voice_profile_id))
 
             campaign_id = cursor.fetchone()[0]
             conn.commit()
@@ -160,7 +208,7 @@ def create_campaign(name: str, target_audience: str, branding_json: Dict,
 
 
 def update_campaign(campaign_id: int, name: str, target_audience: str,
-                   branding_json: Dict, status: str) -> bool:
+                   branding_json: Dict, status: str, brand_voice_profile_id: Optional[str] = None) -> bool:
     """Update an existing campaign"""
     conn = get_db_connection()
     if not conn:
@@ -170,9 +218,9 @@ def update_campaign(campaign_id: int, name: str, target_audience: str,
         with conn.cursor() as cursor:
             cursor.execute("""
                 UPDATE campaigns
-                SET name = %s, target_audience = %s, branding_json = %s, status = %s
+                SET name = %s, target_audience = %s, branding_json = %s, status = %s, brand_voice_profile_id = %s
                 WHERE id = %s
-            """, (name, target_audience, json.dumps(branding_json), status, campaign_id))
+            """, (name, target_audience, json.dumps(branding_json), status, brand_voice_profile_id, campaign_id))
 
             conn.commit()
             return True
@@ -387,6 +435,42 @@ def show_campaign_details(campaign_id: int):
     else:
         st.info("No branding guidelines configured")
 
+    # Brand Voice Profile
+    st.markdown("---")
+    st.subheader("🎤 Brand Voice Profile")
+
+    if campaign.get('brand_voice_profile_id'):
+        profile_name = campaign.get('profile_name')
+        calculated_profile = campaign.get('calculated_profile') or {}
+
+        if profile_name:
+            st.markdown(f"**Active Profile:** {profile_name}")
+
+            if calculated_profile:
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    if 'tone' in calculated_profile:
+                        st.markdown(f"**Tone:** {calculated_profile['tone']}")
+                    if 'style' in calculated_profile:
+                        st.markdown(f"**Style:** {calculated_profile['style']}")
+
+                with col2:
+                    if 'formality' in calculated_profile:
+                        st.markdown(f"**Formality:** {calculated_profile['formality']}")
+                    if 'vocabulary_level' in calculated_profile:
+                        st.markdown(f"**Vocabulary:** {calculated_profile['vocabulary_level']}")
+
+                # Display full calculated profile
+                with st.expander("View Full Brand Voice Analysis"):
+                    st.json(calculated_profile)
+            else:
+                st.info("Profile analysis not yet available")
+        else:
+            st.info("Brand voice profile assigned but details not available")
+    else:
+        st.info("No brand voice profile assigned to this campaign")
+
     # Content list
     st.markdown("---")
     st.subheader("📝 Campaign Content")
@@ -501,6 +585,34 @@ def show_create_campaign_form():
             website_url = st.text_input("Website URL", placeholder="https://example.com")
             tagline = st.text_input("Brand Tagline", placeholder="Your brand's tagline")
 
+        # Brand Voice Profile
+        st.subheader("🎤 Brand Voice Profile (Optional)")
+
+        # Fetch available brand voice profiles
+        all_profiles = get_brand_voice_profiles()
+
+        if all_profiles:
+            profile_options = {"None": None}
+            profile_options.update({p['profile_name']: str(p['id']) for p in all_profiles})
+
+            selected_profile_name = st.selectbox(
+                "Select Brand Voice Profile",
+                options=list(profile_options.keys()),
+                help="Choose a trained brand voice profile to use for this campaign"
+            )
+
+            selected_profile_id = profile_options[selected_profile_name]
+
+            # Show profile details if selected
+            if selected_profile_id:
+                selected_profile = next((p for p in all_profiles if str(p['id']) == selected_profile_id), None)
+                if selected_profile and selected_profile.get('calculated_profile'):
+                    with st.expander("📊 View Profile Details"):
+                        st.json(selected_profile['calculated_profile'])
+        else:
+            selected_profile_id = None
+            st.info("No brand voice profiles available. Create one from the Brand Voice page first.")
+
         # Submit
         st.markdown("---")
         submitted = st.form_submit_button("✅ Create Campaign", use_container_width=True)
@@ -535,7 +647,8 @@ def show_create_campaign_form():
                 name=name,
                 target_audience=target_audience,
                 branding_json=branding_json,
-                user_id=st.session_state.get('user_id', 1)
+                user_id=st.session_state.get('user_id', 1),
+                brand_voice_profile_id=selected_profile_id
             )
 
             if campaign_id:
@@ -636,6 +749,46 @@ def show_edit_campaign_form(campaign_id: int):
             website_url = st.text_input("Website URL", value=branding.get("website_url", ""))
             tagline = st.text_input("Brand Tagline", value=branding.get("tagline", ""))
 
+        # Brand Voice Profile
+        st.subheader("🎤 Brand Voice Profile (Optional)")
+
+        # Fetch available brand voice profiles
+        all_profiles = get_brand_voice_profiles()
+
+        if all_profiles:
+            profile_options = {"None": None}
+            profile_options.update({p['profile_name']: str(p['id']) for p in all_profiles})
+
+            # Get current profile ID as string for comparison
+            current_profile_id = str(campaign.get('brand_voice_profile_id')) if campaign.get('brand_voice_profile_id') else None
+
+            # Find current profile name
+            current_profile_name = "None"
+            if current_profile_id:
+                for name, pid in profile_options.items():
+                    if pid == current_profile_id:
+                        current_profile_name = name
+                        break
+
+            selected_profile_name = st.selectbox(
+                "Select Brand Voice Profile",
+                options=list(profile_options.keys()),
+                index=list(profile_options.keys()).index(current_profile_name),
+                help="Choose a trained brand voice profile to use for this campaign"
+            )
+
+            selected_profile_id = profile_options[selected_profile_name]
+
+            # Show profile details if selected
+            if selected_profile_id:
+                selected_profile = next((p for p in all_profiles if str(p['id']) == selected_profile_id), None)
+                if selected_profile and selected_profile.get('calculated_profile'):
+                    with st.expander("📊 View Profile Details"):
+                        st.json(selected_profile['calculated_profile'])
+        else:
+            selected_profile_id = None
+            st.info("No brand voice profiles available. Create one from the Brand Voice page first.")
+
         # Submit
         st.markdown("---")
 
@@ -673,7 +826,7 @@ def show_edit_campaign_form(campaign_id: int):
                 branding_json["tagline"] = tagline
 
             # Update campaign
-            if update_campaign(campaign_id, name, target_audience, branding_json, status):
+            if update_campaign(campaign_id, name, target_audience, branding_json, status, selected_profile_id):
                 st.success("Campaign updated successfully!")
                 del st.session_state['edit_campaign_id']
                 st.session_state['selected_campaign_id'] = campaign_id
