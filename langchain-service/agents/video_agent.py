@@ -9,6 +9,8 @@ from .base_agent import BaseAgent
 from tools.runway_tool import RunwayTool, create_runway_langchain_tool
 from tools.pika_tool import PikaTool, create_pika_langchain_tool
 from tools.ffmpeg_tool import FFmpegTool, create_ffmpeg_langchain_tool
+from tools.video_download_tool import VideoDownloadTool, create_video_download_langchain_tool
+from tools.music_selection_tool import MusicSelectionTool, create_music_selection_langchain_tool
 import structlog
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +40,8 @@ class VideoGenerationAgent(BaseAgent):
         runway_tool = create_runway_langchain_tool()
         pika_tool = create_pika_langchain_tool()
         ffmpeg_tool = create_ffmpeg_langchain_tool()
+        download_tool = create_video_download_langchain_tool()
+        music_tool = create_music_selection_langchain_tool()
 
         # Create video script builder tool
         def build_video_script(content_description: str, duration: int = 30) -> str:
@@ -236,6 +240,8 @@ Music will be trimmed if track is longer than video."""
             runway_tool,
             pika_tool,
             ffmpeg_tool,
+            download_tool,
+            music_tool,
             script_builder_tool,
             optimizer_tool,
             platform_tool,
@@ -253,6 +259,8 @@ Music will be trimmed if track is longer than video."""
         self.runway = RunwayTool()
         self.pika = PikaTool()
         self.ffmpeg = FFmpegTool()
+        self.downloader = VideoDownloadTool()
+        self.music_selector = MusicSelectionTool()
 
         logger.info("video_agent_initialized")
 
