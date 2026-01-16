@@ -302,14 +302,73 @@ def main():
 
     st.markdown("---")
 
-    # Calendar grid display
-    if scheduled_content.empty:
-        st.info(f"No scheduled content found for {calendar.month_name[selected_month]} {selected_year} with the selected filters.")
-    else:
-        st.markdown(f"### Scheduled Content ({len(scheduled_content)} items)")
-
-        # Group content by date
+    # Prepare content data for calendar grid
+    content_by_date = {}
+    if not scheduled_content.empty:
         scheduled_content['date'] = pd.to_datetime(scheduled_content['scheduled_at']).dt.date
+        for date, items in scheduled_content.groupby('date'):
+            content_by_date[date] = items.to_dict('records')
+
+    # Generate calendar grid
+    st.markdown(f"### 📆 {calendar.month_name[selected_month]} {selected_year}")
+
+    # Get calendar matrix for the month
+    cal = calendar.monthcalendar(selected_year, selected_month)
+
+    # Display day headers
+    day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    header_cols = st.columns(7)
+    for idx, day_name in enumerate(day_names):
+        with header_cols[idx]:
+            st.markdown(f"**{day_name}**")
+
+    # Display calendar grid
+    for week in cal:
+        week_cols = st.columns(7)
+        for idx, day in enumerate(week):
+            with week_cols[idx]:
+                if day == 0:
+                    # Empty day (from previous/next month)
+                    st.markdown('<div class="calendar-day" style="background-color: #F9FAFB; min-height: 120px;"></div>', unsafe_allow_html=True)
+                else:
+                    # Valid day in current month
+                    current_date = datetime(selected_year, selected_month, day).date()
+                    day_content_list = content_by_date.get(current_date, [])
+
+                    # Build day cell HTML
+                    day_html = f'<div class="calendar-day" style="min-height: 120px;">'
+                    day_html += f'<div class="calendar-day-header">{day}</div>'
+
+                    if day_content_list:
+                        # Display content items for this day
+                        for item in day_content_list[:3]:  # Limit to 3 items per day for space
+                            content_type = item.get('content_type', 'unknown').upper()
+                            campaign_name = item.get('campaign_name', 'No Campaign')
+                            channel = item.get('channel', '')
+
+                            # Channel badge
+                            channel_badge_html = ''
+                            if channel:
+                                channel_class = f"badge-{channel}"
+                                channel_badge_html = f'<span class="channel-badge {channel_class}">{channel.upper()}</span>'
+
+                            day_html += f'<div class="content-item">'
+                            day_html += f'{channel_badge_html}'
+                            day_html += f'<div style="font-weight: 600; font-size: 0.75rem;">{content_type}</div>'
+                            day_html += f'<div style="font-size: 0.7rem; color: #6B7280;">{campaign_name[:20]}...</div>'
+                            day_html += f'</div>'
+
+                        # Show count if more items exist
+                        if len(day_content_list) > 3:
+                            day_html += f'<div style="font-size: 0.7rem; color: #6B7280; margin-top: 0.3rem;">+{len(day_content_list) - 3} more</div>'
+
+                    day_html += '</div>'
+                    st.markdown(day_html, unsafe_allow_html=True)
+
+    # Detailed list view below calendar
+    if not scheduled_content.empty:
+        st.markdown("---")
+        st.markdown(f"### 📋 Detailed Schedule ({len(scheduled_content)} items)")
 
         # Display content grouped by date
         for date in sorted(scheduled_content['date'].unique()):
@@ -352,6 +411,8 @@ def main():
                         st.caption(f"{status_emoji.get(status, '❓')} {status}")
 
                     st.markdown("---")
+    else:
+        st.info(f"No scheduled content found for {calendar.month_name[selected_month]} {selected_year} with the selected filters.")
 
 
 if __name__ == "__main__":
