@@ -519,7 +519,8 @@ CRITICAL: You MUST match this brand voice in all content you create.
         topic: str,
         keywords: Optional[List[str]] = None,
         word_count: int = 1500,
-        tone: str = "professional"
+        tone: str = "professional",
+        target_audience: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Create comprehensive blog post
@@ -529,18 +530,20 @@ CRITICAL: You MUST match this brand voice in all content you create.
             keywords: Target SEO keywords
             word_count: Desired word count
             tone: Content tone (professional, casual, authoritative, etc.)
+            target_audience: Target audience for the content
 
         Returns:
             Dict with blog post content
         """
         keywords_str = ", ".join(keywords) if keywords else "not specified"
+        audience_str = f"\n- Target audience: {target_audience}" if target_audience else ""
 
         prompt = f"""Create a comprehensive blog post on: {topic}
 
 Requirements:
 - Target word count: {word_count} words
 - Tone: {tone}
-- Target keywords: {keywords_str}
+- Target keywords: {keywords_str}{audience_str}
 
 Structure:
 1. Compelling headline (60 chars max, include main keyword)
@@ -586,7 +589,9 @@ Make it engaging, valuable, and optimized for SEO."""
         self,
         topic: str,
         post_type: str = "thought_leadership",
-        length: str = "medium"
+        length: str = "medium",
+        target_audience: Optional[str] = None,
+        tone: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Create LinkedIn post
@@ -595,6 +600,8 @@ Make it engaging, valuable, and optimized for SEO."""
             topic: Post topic
             post_type: Type (thought_leadership, company_update, industry_news, personal_story)
             length: short (100-300 words), medium (300-600), long (600-1000)
+            target_audience: Target audience for the post
+            tone: Desired tone (professional, conversational, inspiring, etc.)
 
         Returns:
             Dict with LinkedIn post content
@@ -605,7 +612,10 @@ Make it engaging, valuable, and optimized for SEO."""
             "long": "600-1000 words"
         }
 
-        prompt = f"""Create a LinkedIn post on: {topic}
+        audience_context = f"\nTarget audience: {target_audience}" if target_audience else ""
+        tone_context = f"\nTone: {tone}" if tone else ""
+
+        prompt = f"""Create a LinkedIn post on: {topic}{audience_context}{tone_context}
 
 Post type: {post_type}
 Length: {length} ({length_guidance.get(length, '300-600 words')})

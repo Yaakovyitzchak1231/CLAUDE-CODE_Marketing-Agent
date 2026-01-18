@@ -22,9 +22,9 @@ st.set_page_config(
 DB_CONFIG = {
     "host": os.getenv("POSTGRES_HOST", "localhost"),
     "port": int(os.getenv("POSTGRES_PORT", 5432)),
-    "database": os.getenv("POSTGRES_DB", "marketing_db"),
-    "user": os.getenv("POSTGRES_USER", "marketing_user"),
-    "password": os.getenv("POSTGRES_PASSWORD", "marketing_pass")
+    "database": os.getenv("POSTGRES_DB", "marketing"),
+    "user": os.getenv("POSTGRES_USER", "n8n"),
+    "password": os.getenv("POSTGRES_PASSWORD", "n8npassword"),
 }
 
 
@@ -50,7 +50,7 @@ def reset_db_connection():
         pass
 
 
-def get_user_campaigns(user_id: Optional[int] = None) -> List[Dict]:
+def get_user_campaigns(user_id: Optional[str] = None) -> List[Dict]:
     """Fetch campaigns for the current user"""
     conn = get_db_connection()
     if not conn:
@@ -166,7 +166,7 @@ def main():
 
     # Sidebar with quick stats
     with st.sidebar:
-        st.image("https://via.placeholder.com/200x60/1E3A8A/FFFFFF?text=Marketing+AI")
+        st.markdown("## 🎯 Marketing AI")
         st.markdown("---")
 
         # Quick stats in sidebar

@@ -66,11 +66,16 @@ class PostgreSQLStorage:
         cursor = conn.cursor()
 
         try:
+            # Enable UUID extension
+            cursor.execute("""
+                CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+            """)
+
             # Research results table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS research_results (
-                    id SERIAL PRIMARY KEY,
-                    campaign_id INTEGER,
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    campaign_id UUID,
                     query TEXT NOT NULL,
                     source TEXT,
                     results JSONB NOT NULL,
@@ -88,8 +93,8 @@ class PostgreSQLStorage:
             # Content analysis table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS content_analysis (
-                    id SERIAL PRIMARY KEY,
-                    content_id INTEGER,
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    content_id UUID,
                     analysis_type VARCHAR(50) NOT NULL,
                     results JSONB NOT NULL,
                     sentiment_score NUMERIC,
@@ -107,9 +112,9 @@ class PostgreSQLStorage:
             # Agent outputs table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS agent_outputs (
-                    id SERIAL PRIMARY KEY,
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
                     agent_name VARCHAR(100) NOT NULL,
-                    campaign_id INTEGER,
+                    campaign_id UUID,
                     input JSONB,
                     output JSONB NOT NULL,
                     execution_time NUMERIC,
@@ -131,12 +136,12 @@ class PostgreSQLStorage:
             # Market insights table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS market_insights (
-                    id SERIAL PRIMARY KEY,
-                    campaign_id INTEGER NOT NULL,
-                    segment VARCHAR(100),
-                    insights JSONB NOT NULL,
-                    confidence_score NUMERIC,
-                    sources JSONB,
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    campaign_id UUID NOT NULL,
+                    segment VARCHAR(255),
+                    insights_json JSONB NOT NULL,
+                    confidence_score DECIMAL(5,2),
+                    source VARCHAR(100),
                     created_at TIMESTAMP DEFAULT NOW(),
                     CONSTRAINT fk_campaign FOREIGN KEY (campaign_id)
                         REFERENCES campaigns(id) ON DELETE CASCADE
@@ -151,11 +156,12 @@ class PostgreSQLStorage:
             # Trends table (already exists but adding if not)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS trends (
-                    id SERIAL PRIMARY KEY,
-                    topic VARCHAR(200) NOT NULL,
-                    score NUMERIC NOT NULL,
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    topic VARCHAR(255) NOT NULL,
+                    score DECIMAL(10,2),
+                    category VARCHAR(100),
                     source VARCHAR(100),
-                    metadata JSONB,
+                    metadata_json JSONB,
                     detected_at TIMESTAMP DEFAULT NOW()
                 );
 
@@ -184,9 +190,9 @@ class PostgreSQLStorage:
         self,
         query: str,
         results: Dict[str, Any],
-        campaign_id: Optional[int] = None,
+        campaign_id: Optional[str] = None,
         source: Optional[str] = None
-    ) -> int:
+    ) -> str:
         """
         Store research results
 
@@ -214,12 +220,12 @@ class PostgreSQLStorage:
 
             logger.info(
                 "research_result_stored",
-                result_id=result_id,
+                result_id=str(result_id),
                 query=query,
                 source=source
             )
 
-            return result_id
+            return str(result_id)
 
         except Exception as e:
             conn.rollback()
@@ -231,7 +237,7 @@ class PostgreSQLStorage:
 
     def get_research_results(
         self,
-        campaign_id: Optional[int] = None,
+        campaign_id: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         """
@@ -272,13 +278,13 @@ class PostgreSQLStorage:
 
     def store_content_analysis(
         self,
-        content_id: int,
+        content_id: str,
         analysis_type: str,
         results: Dict[str, Any],
         sentiment_score: Optional[float] = None,
         topics: Optional[List[Dict[str, Any]]] = None,
         entities: Optional[Dict[str, List[str]]] = None
-    ) -> int:
+    ) -> str:
         """
         Store content analysis results
 
@@ -318,12 +324,12 @@ class PostgreSQLStorage:
 
             logger.info(
                 "content_analysis_stored",
-                analysis_id=analysis_id,
+                analysis_id=str(analysis_id),
                 content_id=content_id,
                 analysis_type=analysis_type
             )
 
-            return analysis_id
+            return str(analysis_id)
 
         except Exception as e:
             conn.rollback()
@@ -339,12 +345,12 @@ class PostgreSQLStorage:
         self,
         agent_name: str,
         output: Dict[str, Any],
-        campaign_id: Optional[int] = None,
+        campaign_id: Optional[str] = None,
         input_data: Optional[Dict[str, Any]] = None,
         execution_time: Optional[float] = None,
         success: bool = True,
         error_message: Optional[str] = None
-    ) -> int:
+    ) -> str:
         """
         Store agent execution output
 
@@ -386,12 +392,12 @@ class PostgreSQLStorage:
 
             logger.info(
                 "agent_output_stored",
-                output_id=output_id,
+                output_id=str(output_id),
                 agent_name=agent_name,
                 success=success
             )
 
-            return output_id
+            return str(output_id)
 
         except Exception as e:
             conn.rollback()
@@ -404,7 +410,7 @@ class PostgreSQLStorage:
     def get_agent_outputs(
         self,
         agent_name: Optional[str] = None,
-        campaign_id: Optional[int] = None,
+        campaign_id: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         """
@@ -448,12 +454,13 @@ class PostgreSQLStorage:
 
     def store_market_insight(
         self,
-        campaign_id: int,
+        campaign_id: str,
         insights: Dict[str, Any],
         segment: Optional[str] = None,
         confidence_score: Optional[float] = None,
+        source: Optional[str] = None,
         sources: Optional[List[str]] = None
-    ) -> int:
+    ) -> str:
         """
         Store market insights
 
@@ -471,32 +478,39 @@ class PostgreSQLStorage:
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
+            insights_payload = dict(insights or {})
+            if sources:
+                insights_payload["sources"] = sources
+
+            cursor.execute(
+                """
                 INSERT INTO market_insights (
-                    campaign_id, segment, insights,
-                    confidence_score, sources
+                    campaign_id, segment, insights_json,
+                    confidence_score, source
                 )
                 VALUES (%s, %s, %s, %s, %s)
                 RETURNING id
-            """, (
-                campaign_id,
-                segment,
-                Json(insights),
-                confidence_score,
-                Json(sources) if sources else None
-            ))
+            """,
+                (
+                    campaign_id,
+                    segment,
+                    Json(insights_payload),
+                    confidence_score,
+                    source,
+                ),
+            )
 
             insight_id = cursor.fetchone()[0]
             conn.commit()
 
             logger.info(
                 "market_insight_stored",
-                insight_id=insight_id,
+                insight_id=str(insight_id),
                 campaign_id=campaign_id,
                 segment=segment
             )
 
-            return insight_id
+            return str(insight_id)
 
         except Exception as e:
             conn.rollback()
@@ -512,9 +526,10 @@ class PostgreSQLStorage:
         self,
         topic: str,
         score: float,
+        category: Optional[str] = None,
         source: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
-    ) -> int:
+    ) -> str:
         """
         Store detected trend
 
@@ -531,28 +546,32 @@ class PostgreSQLStorage:
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
-                INSERT INTO trends (topic, score, source, metadata)
-                VALUES (%s, %s, %s, %s)
+            cursor.execute(
+                """
+                INSERT INTO trends (topic, score, category, source, metadata_json)
+                VALUES (%s, %s, %s, %s, %s)
                 RETURNING id
-            """, (
-                topic,
-                score,
-                source,
-                Json(metadata) if metadata else None
-            ))
+            """,
+                (
+                    topic,
+                    score,
+                    category,
+                    source,
+                    Json(metadata) if metadata else None,
+                ),
+            )
 
             trend_id = cursor.fetchone()[0]
             conn.commit()
 
             logger.info(
                 "trend_stored",
-                trend_id=trend_id,
+                trend_id=str(trend_id),
                 topic=topic,
                 score=score
             )
 
-            return trend_id
+            return str(trend_id)
 
         except Exception as e:
             conn.rollback()
@@ -685,8 +704,8 @@ class PostgreSQLStorage:
             asset_id: ID of the media asset being edited
             edit_type: Type of edit (music, watermark)
             parameters: Edit parameters (music file, watermark settings, etc.)
-            result_path: Path to the edited file
-            metadata: Additional metadata
+            result_path: Path to the edited file (stored as edited_file_path)
+            metadata: Optional additional metadata (stored in edit_params)
 
         Returns:
             Edit ID (UUID string)
@@ -695,19 +714,25 @@ class PostgreSQLStorage:
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
+            edit_params: Dict[str, Any] = {"parameters": parameters or {}}      
+            if metadata:
+                edit_params["metadata"] = metadata
+
+            cursor.execute(
+                """
                 INSERT INTO media_edits (
-                    asset_id, edit_type, parameters, result_path, metadata_json
+                    asset_id, edit_type, edit_params, edited_file_path
                 )
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s)
                 RETURNING id
-            """, (
-                asset_id,
-                edit_type,
-                Json(parameters),
-                result_path,
-                Json(metadata) if metadata else None
-            ))
+            """,
+                (
+                    asset_id,
+                    edit_type,
+                    Json(edit_params),
+                    result_path,
+                ),
+            )
 
             edit_id = cursor.fetchone()[0]
             conn.commit()

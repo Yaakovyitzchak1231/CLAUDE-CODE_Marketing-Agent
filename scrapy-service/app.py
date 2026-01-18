@@ -12,6 +12,8 @@ import asyncio
 import structlog
 import uuid
 import os
+import json
+import redis
 
 # Scrapy imports
 from scrapy.crawler import CrawlerProcess, CrawlerRunner
@@ -31,15 +33,103 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Job tracking
-jobs = {}
+# Redis-based job tracking (persists across processes)
+redis_client = redis.Redis(
+    host=os.getenv('REDIS_HOST', 'redis'),
+    port=int(os.getenv('REDIS_PORT', 6379)),
+    decode_responses=True
+)
+
+JOB_KEY_PREFIX = "scrapy_job:"
+JOB_LIST_KEY = "scrapy_jobs"
+
+
+def update_job_status(job_id: str, job_data: Dict[str, Any]) -> None:
+    """Update job status in Redis"""
+    # Convert datetime objects to ISO strings for JSON serialization
+    serialized = {}
+    for key, value in job_data.items():
+        if isinstance(value, datetime):
+            serialized[key] = value.isoformat()
+        elif isinstance(value, list):
+            serialized[key] = json.dumps(value)
+        else:
+            serialized[key] = value
+
+    redis_client.hset(f"{JOB_KEY_PREFIX}{job_id}", mapping=serialized)
+    # Add to job list with score as timestamp for ordering
+    redis_client.zadd(JOB_LIST_KEY, {job_id: datetime.now().timestamp()})
+
+
+def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
+    """Get job status from Redis"""
+    data = redis_client.hgetall(f"{JOB_KEY_PREFIX}{job_id}")
+    if not data:
+        return None
+
+    # Deserialize
+    result = {}
+    for key, value in data.items():
+        if key in ('started_at', 'completed_at') and value and value != 'None':
+            try:
+                result[key] = datetime.fromisoformat(value)
+            except (ValueError, TypeError):
+                result[key] = None
+        elif key == 'errors':
+            try:
+                result[key] = json.loads(value) if value else []
+            except json.JSONDecodeError:
+                result[key] = []
+        elif key == 'items_scraped':
+            result[key] = int(value) if value else 0
+        else:
+            result[key] = value if value != 'None' else None
+
+    return result
+
+
+def list_all_jobs(status_filter: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """List all jobs from Redis, optionally filtered by status"""
+    # Get all job IDs sorted by timestamp (most recent first)
+    job_ids = redis_client.zrevrange(JOB_LIST_KEY, 0, -1)
+
+    jobs = []
+    for job_id in job_ids:
+        job_data = get_job_status(job_id)
+        if job_data:
+            if status_filter is None or job_data.get("status") == status_filter:
+                jobs.append(job_data)
+            if len(jobs) >= limit:
+                break
+
+    return jobs
+
+
+def delete_job(job_id: str) -> Optional[Dict[str, Any]]:
+    """Delete job from Redis"""
+    job_data = get_job_status(job_id)
+    if job_data:
+        redis_client.delete(f"{JOB_KEY_PREFIX}{job_id}")
+        redis_client.zrem(JOB_LIST_KEY, job_id)
+    return job_data
+
+
+def count_active_jobs() -> int:
+    """Count currently running jobs"""
+    job_ids = redis_client.zrange(JOB_LIST_KEY, 0, -1)
+    count = 0
+    for job_id in job_ids:
+        status = redis_client.hget(f"{JOB_KEY_PREFIX}{job_id}", "status")
+        if status == "running":
+            count += 1
+    return count
 
 
 # === Pydantic Models ===
 
 class ScrapeRequest(BaseModel):
     """Request to scrape a competitor website"""
-    competitor_id: int = Field(..., description="Database ID of the competitor")
+    competitor_id: str = Field(..., description="Competitor UUID (competitors.id)")
     start_url: HttpUrl = Field(..., description="Starting URL to scrape")
     allowed_domains: Optional[List[str]] = Field(
         None,
@@ -55,7 +145,7 @@ class ScrapeRequest(BaseModel):
 
 class BlogMonitorRequest(BaseModel):
     """Request to monitor competitor blog"""
-    competitor_id: int = Field(..., description="Database ID of the competitor")
+    competitor_id: str = Field(..., description="Competitor UUID (competitors.id)")
     blog_url: HttpUrl = Field(..., description="Blog feed URL")
     max_posts: int = Field(20, ge=1, le=100, description="Maximum posts to scrape")
 
@@ -85,11 +175,33 @@ def run_spider_in_process(spider_class, job_id: str, **kwargs):
     Run spider in separate process to avoid reactor issues
 
     Scrapy's Twisted reactor can only be started once per process
+    Uses Redis for job tracking to persist across process boundaries.
     """
+    # Create Redis client for this process
+    process_redis = redis.Redis(
+        host=os.getenv('REDIS_HOST', 'redis'),
+        port=int(os.getenv('REDIS_PORT', 6379)),
+        decode_responses=True
+    )
+
+    def update_process_job(updates: Dict[str, Any]) -> None:
+        """Update job in Redis from within process"""
+        serialized = {}
+        for key, value in updates.items():
+            if isinstance(value, datetime):
+                serialized[key] = value.isoformat()
+            elif isinstance(value, list):
+                serialized[key] = json.dumps(value)
+            else:
+                serialized[key] = value
+        process_redis.hset(f"{JOB_KEY_PREFIX}{job_id}", mapping=serialized)
+
     try:
         # Update job status
-        jobs[job_id]["status"] = "running"
-        jobs[job_id]["started_at"] = datetime.now()
+        update_process_job({
+            "status": "running",
+            "started_at": datetime.now()
+        })
 
         # Get project settings
         settings = get_project_settings()
@@ -105,7 +217,7 @@ def run_spider_in_process(spider_class, job_id: str, **kwargs):
 
         def item_scraped(item, response, spider):
             items_scraped.append(item)
-            jobs[job_id]["items_scraped"] = len(items_scraped)
+            update_process_job({"items_scraped": len(items_scraped)})
 
         # Configure crawler
         process.crawl(spider_class, **kwargs)
@@ -119,9 +231,11 @@ def run_spider_in_process(spider_class, job_id: str, **kwargs):
         process.start()
 
         # Update job status on completion
-        jobs[job_id]["status"] = "completed"
-        jobs[job_id]["completed_at"] = datetime.now()
-        jobs[job_id]["items_scraped"] = len(items_scraped)
+        update_process_job({
+            "status": "completed",
+            "completed_at": datetime.now(),
+            "items_scraped": len(items_scraped)
+        })
 
         logger.info(
             "spider_completed",
@@ -130,10 +244,20 @@ def run_spider_in_process(spider_class, job_id: str, **kwargs):
         )
 
     except Exception as e:
+        # Get current errors from Redis
+        current_errors = process_redis.hget(f"{JOB_KEY_PREFIX}{job_id}", "errors")
+        try:
+            errors = json.loads(current_errors) if current_errors else []
+        except json.JSONDecodeError:
+            errors = []
+        errors.append(str(e))
+
         # Update job status on error
-        jobs[job_id]["status"] = "failed"
-        jobs[job_id]["completed_at"] = datetime.now()
-        jobs[job_id]["errors"].append(str(e))
+        update_process_job({
+            "status": "failed",
+            "completed_at": datetime.now(),
+            "errors": errors
+        })
 
         logger.error(
             "spider_failed",
@@ -175,7 +299,7 @@ async def root():
         "service": "scrapy-service",
         "status": "running",
         "version": "1.0.0",
-        "active_jobs": len([j for j in jobs.values() if j["status"] == "running"])
+        "active_jobs": count_active_jobs()
     }
 
 
@@ -201,8 +325,19 @@ async def scrape_competitor(
     # Set allowed domains
     allowed_domains = request.allowed_domains or [domain]
 
-    # Initialize job tracking
-    jobs[job_id] = {
+    # Map requested content types to the spider's scrape_type
+    content_types = request.content_types or ['page', 'blog_post', 'pricing', 'product']
+    if 'pricing' in content_types:
+        scrape_type = 'pricing'
+    elif 'product' in content_types:
+        scrape_type = 'products'
+    elif 'blog_post' in content_types:
+        scrape_type = 'blog'
+    else:
+        scrape_type = 'full'
+
+    # Initialize job tracking in Redis
+    update_job_status(job_id, {
         "job_id": job_id,
         "status": "pending",
         "spider": "CompetitorSpider",
@@ -212,19 +347,19 @@ async def scrape_competitor(
         "completed_at": None,
         "items_scraped": 0,
         "errors": []
-    }
+    })
 
     # Start spider in background
     background_tasks.add_task(
         start_spider_async,
         CompetitorSpider,
         job_id,
+        url=str(request.start_url),
         competitor_id=request.competitor_id,
-        start_urls=[str(request.start_url)],
+        scrape_type=scrape_type,
         allowed_domains=allowed_domains,
         max_depth=request.max_depth,
-        max_pages=request.max_pages,
-        content_types=request.content_types or ['page', 'blog_post', 'pricing', 'product']
+        max_pages=request.max_pages
     )
 
     logger.info(
@@ -261,8 +396,8 @@ async def scrape_blog(
     parsed_url = urlparse(str(request.blog_url))
     domain = parsed_url.netloc
 
-    # Initialize job tracking
-    jobs[job_id] = {
+    # Initialize job tracking in Redis
+    update_job_status(job_id, {
         "job_id": job_id,
         "status": "pending",
         "spider": "BlogMonitorSpider",
@@ -272,15 +407,15 @@ async def scrape_blog(
         "completed_at": None,
         "items_scraped": 0,
         "errors": []
-    }
+    })
 
     # Start spider in background
     background_tasks.add_task(
         start_spider_async,
         BlogMonitorSpider,
         job_id,
+        url=str(request.blog_url),
         competitor_id=request.competitor_id,
-        start_urls=[str(request.blog_url)],
         allowed_domains=[domain],
         max_posts=request.max_posts
     )
@@ -301,29 +436,28 @@ async def scrape_blog(
 
 
 @app.get("/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(job_id: str):
+async def get_job_status_endpoint(job_id: str):
     """
     Get status of scraping job
 
     Returns current status, progress, and any errors.
     """
-    if job_id not in jobs:
+    job = get_job_status(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    job = jobs[job_id]
-
     return JobStatusResponse(
-        job_id=job["job_id"],
-        status=job["status"],
-        started_at=job["started_at"] or datetime.now(),
-        completed_at=job["completed_at"],
-        items_scraped=job["items_scraped"],
-        errors=job["errors"]
+        job_id=job.get("job_id", job_id),
+        status=job.get("status", "unknown"),
+        started_at=job.get("started_at") or datetime.now(),
+        completed_at=job.get("completed_at"),
+        items_scraped=job.get("items_scraped", 0),
+        errors=job.get("errors", [])
     )
 
 
 @app.get("/jobs")
-async def list_jobs(
+async def list_jobs_endpoint(
     status: Optional[str] = None,
     limit: int = 50
 ):
@@ -332,48 +466,35 @@ async def list_jobs(
 
     Optionally filter by status: pending, running, completed, failed
     """
-    filtered_jobs = jobs.values()
+    jobs_list = list_all_jobs(status_filter=status, limit=limit)
 
-    # Filter by status if provided
-    if status:
-        filtered_jobs = [j for j in filtered_jobs if j["status"] == status]
-
-    # Sort by started_at (most recent first)
-    sorted_jobs = sorted(
-        filtered_jobs,
-        key=lambda x: x["started_at"] or datetime.min,
-        reverse=True
-    )
-
-    # Limit results
     return {
-        "total": len(sorted_jobs),
+        "total": len(jobs_list),
         "limit": limit,
-        "jobs": sorted_jobs[:limit]
+        "jobs": jobs_list
     }
 
 
 @app.delete("/jobs/{job_id}")
-async def delete_job(job_id: str):
+async def delete_job_endpoint(job_id: str):
     """
     Delete job from tracking
 
     Note: Does not stop running jobs, only removes from history.
     """
-    if job_id not in jobs:
+    job = delete_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-
-    job = jobs.pop(job_id)
 
     logger.info(
         "job_deleted",
         job_id=job_id,
-        status=job["status"]
+        status=job.get("status")
     )
 
     return {
         "message": f"Job {job_id} deleted",
-        "status": job["status"]
+        "status": job.get("status")
     }
 
 
@@ -384,14 +505,15 @@ async def get_stats():
 
     Returns counts by job status and overall metrics.
     """
-    total_jobs = len(jobs)
+    all_jobs = list_all_jobs(limit=1000)  # Get all jobs for stats
+    total_jobs = len(all_jobs)
     status_counts = {}
 
-    for job in jobs.values():
-        status = job["status"]
+    for job in all_jobs:
+        status = job.get("status", "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
 
-    total_items = sum(j["items_scraped"] for j in jobs.values())
+    total_items = sum(j.get("items_scraped", 0) for j in all_jobs)
 
     return {
         "total_jobs": total_jobs,

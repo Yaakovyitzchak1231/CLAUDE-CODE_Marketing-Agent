@@ -53,7 +53,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/storage/vector-embeddings/search",
+        "url": "http://langchain_service:8001/storage/vector-embeddings/search",
         "method": "POST",
         "bodyParametersJson": "={\n  \"collection_name\": \"content_library\",\n  \"query\": \"{{ $json.topic }}\",\n  \"k\": 5,\n  \"filter\": {\n    \"content_type\": \"{{ $json.content_type }}\"\n  }\n}",
         "options": {}
@@ -66,7 +66,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/agents/content",
+        "url": "http://langchain_service:8001/agents/content",
         "method": "POST",
         "bodyParametersJson": "={\n  \"topic\": \"{{ $json.topic }}\",\n  \"content_type\": \"{{ $json.content_type }}\",\n  \"target_audience\": \"{{ $('Get Campaign Details').item.json.target_audience }}\",\n  \"brand_voice\": {{ $('Get Campaign Details').item.json.branding_json }},\n  \"research_context\": {{ $('Get Recent Research').all() }},\n  \"similar_content\": {{ $json.similar_content }},\n  \"length\": \"{{ $json.length || 'medium' }}\",\n  \"tone\": \"{{ $json.tone || 'professional' }}\",\n  \"include_cta\": {{ $json.include_cta || true }}\n}",
         "options": {
@@ -81,7 +81,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/chains/seo-optimizer",
+        "url": "http://langchain_service:8001/chains/seo-optimizer",
         "method": "POST",
         "bodyParametersJson": "={\n  \"content\": \"{{ $json.content }}\",\n  \"target_keywords\": {{ $json.target_keywords || [] }}\n}",
         "options": {}
@@ -94,7 +94,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/tools/grammar-check",
+        "url": "http://langchain_service:8001/tools/grammar-check",
         "method": "POST",
         "bodyParametersJson": "={\n  \"text\": \"{{ $json.enhanced_content }}\"\n}",
         "options": {}
@@ -156,7 +156,7 @@
     },
     {
       "parameters": {
-        "url": "http://langchain-service:8001/storage/vector-embeddings/add",
+        "url": "http://langchain_service:8001/storage/vector-embeddings/add",
         "method": "POST",
         "bodyParametersJson": "={\n  \"collection_name\": \"content_library\",\n  \"texts\": [\"{{ $json.content }}\"],\n  \"metadatas\": [{\n    \"draft_id\": {{ $json.id }},\n    \"campaign_id\": {{ $json.campaign_id }},\n    \"content_type\": \"{{ $json.type }}\",\n    \"status\": \"{{ $json.status }}\",\n    \"seo_score\": {{ $json.seo_score }},\n    \"created_at\": \"{{ $json.metadata.generated_at }}\"\n  }],\n  \"chunk_strategy\": \"recursive\"\n}",
         "options": {}

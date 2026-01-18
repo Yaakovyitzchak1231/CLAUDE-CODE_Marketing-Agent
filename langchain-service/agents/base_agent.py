@@ -14,6 +14,7 @@ import structlog
 from datetime import datetime
 
 from config import settings
+from .citations import CitationTracker, wrap_response_with_citations, CITATION_REQUIREMENTS_PROMPT
 
 
 logger = structlog.get_logger()
@@ -67,6 +68,10 @@ class BaseAgent(ABC):
 
         # Create agent executor
         self.executor = self._create_executor()
+
+        # Citation tracking
+        self.citation_tracker = CitationTracker()
+        self.require_citations = True  # Enable by default
 
         # Metadata
         self.created_at = datetime.utcnow()
@@ -150,9 +155,12 @@ Thought: {agent_scratchpad}"""
             **kwargs: Additional parameters
 
         Returns:
-            Dict with output and metadata
+            Dict with output and metadata including citations
         """
         start_time = datetime.utcnow()
+
+        # Reset citation tracker for new execution
+        self.citation_tracker.clear()
 
         try:
             logger.info(
@@ -161,8 +169,13 @@ Thought: {agent_scratchpad}"""
                 input=input_text[:100]  # Truncate for logging
             )
 
+            # Enhance input with citation requirements if enabled
+            enhanced_input = input_text
+            if self.require_citations:
+                enhanced_input = f"{input_text}\n\n{CITATION_REQUIREMENTS_PROMPT}"
+
             # Run agent
-            result = self.executor.invoke({"input": input_text, **kwargs})
+            result = self.executor.invoke({"input": enhanced_input, **kwargs})
 
             # Update metrics
             self.execution_count += 1
@@ -175,13 +188,19 @@ Thought: {agent_scratchpad}"""
                 iterations=len(result.get("intermediate_steps", []))
             )
 
-            return {
+            base_response = {
                 "output": result.get("output", ""),
                 "intermediate_steps": result.get("intermediate_steps", []),
                 "execution_time": execution_time,
                 "agent": self.name,
                 "timestamp": datetime.utcnow().isoformat()
             }
+
+            # Add citation validation if enabled
+            if self.require_citations:
+                return wrap_response_with_citations(base_response, self.citation_tracker)
+
+            return base_response
 
         except Exception as e:
             logger.error(
@@ -195,7 +214,9 @@ Thought: {agent_scratchpad}"""
                 "output": f"Error: {str(e)}",
                 "error": str(e),
                 "agent": self.name,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
+                "citations": [],
+                "is_verified": False
             }
 
     async def arun(self, input_text: str, **kwargs) -> Dict[str, Any]:
@@ -207,9 +228,12 @@ Thought: {agent_scratchpad}"""
             **kwargs: Additional parameters
 
         Returns:
-            Dict with output and metadata
+            Dict with output and metadata including citations
         """
         start_time = datetime.utcnow()
+
+        # Reset citation tracker for new execution
+        self.citation_tracker.clear()
 
         try:
             logger.info(
@@ -218,8 +242,13 @@ Thought: {agent_scratchpad}"""
                 input=input_text[:100]
             )
 
+            # Enhance input with citation requirements if enabled
+            enhanced_input = input_text
+            if self.require_citations:
+                enhanced_input = f"{input_text}\n\n{CITATION_REQUIREMENTS_PROMPT}"
+
             # Run agent asynchronously
-            result = await self.executor.ainvoke({"input": input_text, **kwargs})
+            result = await self.executor.ainvoke({"input": enhanced_input, **kwargs})
 
             # Update metrics
             self.execution_count += 1
@@ -231,13 +260,19 @@ Thought: {agent_scratchpad}"""
                 execution_time=execution_time
             )
 
-            return {
+            base_response = {
                 "output": result.get("output", ""),
                 "intermediate_steps": result.get("intermediate_steps", []),
                 "execution_time": execution_time,
                 "agent": self.name,
                 "timestamp": datetime.utcnow().isoformat()
             }
+
+            # Add citation validation if enabled
+            if self.require_citations:
+                return wrap_response_with_citations(base_response, self.citation_tracker)
+
+            return base_response
 
         except Exception as e:
             logger.error(
@@ -251,7 +286,9 @@ Thought: {agent_scratchpad}"""
                 "output": f"Error: {str(e)}",
                 "error": str(e),
                 "agent": self.name,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
+                "citations": [],
+                "is_verified": False
             }
 
     def get_tools(self) -> List[str]:

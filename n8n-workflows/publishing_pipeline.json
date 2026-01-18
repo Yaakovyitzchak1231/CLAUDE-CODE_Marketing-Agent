@@ -152,7 +152,7 @@
     },
     {
       "parameters": {
-        "url": "http://publishing-service:8002/linkedin/publish",
+        "url": "http://publishing_service:8004/linkedin/publish",
         "method": "POST",
         "bodyParametersJson": "={\n  \"access_token\": \"{{ $env.LINKEDIN_ACCESS_TOKEN }}\",\n  \"text\": \"{{ $('Get Content Draft').item.json.content }}\",\n  \"title\": \"{{ $('Get Content Draft').item.json.title }}\",\n  \"media_urls\": {{ $('Get Media Assets').all().map(m => m.json.url) }},\n  \"visibility\": \"PUBLIC\"\n}",
         "options": {
@@ -167,7 +167,7 @@
     },
     {
       "parameters": {
-        "url": "http://publishing-service:8002/wordpress/publish",
+        "url": "http://publishing_service:8004/wordpress/publish",
         "method": "POST",
         "bodyParametersJson": "={\n  \"wp_url\": \"{{ $env.WORDPRESS_URL }}\",\n  \"wp_username\": \"{{ $env.WORDPRESS_USERNAME }}\",\n  \"wp_password\": \"{{ $env.WORDPRESS_PASSWORD }}\",\n  \"title\": \"{{ $('Get Content Draft').item.json.title }}\",\n  \"content\": \"{{ $('Get Content Draft').item.json.content }}\",\n  \"categories\": {{ $('Get Content Draft').item.json.categories || '[]' }},\n  \"tags\": {{ $('Get Content Draft').item.json.meta_keywords?.split(',') || '[]' }},\n  \"featured_image_url\": \"{{ $('Get Media Assets').all()[0]?.json.url }}\",\n  \"status\": \"publish\"\n}",
         "options": {
@@ -182,7 +182,7 @@
     },
     {
       "parameters": {
-        "url": "http://publishing-service:8002/email/send",
+        "url": "http://publishing_service:8004/email/send",
         "method": "POST",
         "bodyParametersJson": "={\n  \"smtp_host\": \"{{ $env.SMTP_HOST }}\",\n  \"smtp_port\": {{ $env.SMTP_PORT }},\n  \"smtp_username\": \"{{ $env.SMTP_USERNAME }}\",\n  \"smtp_password\": \"{{ $env.SMTP_PASSWORD }}\",\n  \"from_email\": \"{{ $env.EMAIL_FROM }}\",\n  \"from_name\": \"{{ $('Get Content Draft').item.json.branding_json.company_name }}\",\n  \"to_list\": {{ $('Webhook - Publish Content').item.json.body.email_recipients || '[]' }},\n  \"subject\": \"{{ $('Get Content Draft').item.json.title }}\",\n  \"html_content\": \"{{ $('Get Content Draft').item.json.content }}\",\n  \"inline_images\": {{ $('Get Media Assets').all().map(m => ({url: m.json.url, cid: m.json.id})) }}\n}",
         "options": {

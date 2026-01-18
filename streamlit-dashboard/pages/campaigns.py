@@ -8,7 +8,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import json
 
 # Page configuration
@@ -22,9 +22,9 @@ st.set_page_config(
 DB_CONFIG = {
     "host": os.getenv("POSTGRES_HOST", "localhost"),
     "port": int(os.getenv("POSTGRES_PORT", 5432)),
-    "database": os.getenv("POSTGRES_DB", "marketing_db"),
-    "user": os.getenv("POSTGRES_USER", "marketing_user"),
-    "password": os.getenv("POSTGRES_PASSWORD", "marketing_pass")
+    "database": os.getenv("POSTGRES_DB", "marketing"),
+    "user": os.getenv("POSTGRES_USER", "n8n"),
+    "password": os.getenv("POSTGRES_PASSWORD", "n8npassword"),
 }
 
 
@@ -40,7 +40,7 @@ def get_db_connection():
         return None
 
 
-def get_campaigns(user_id: Optional[int] = None, status: Optional[str] = None) -> List[Dict]:
+def get_campaigns(user_id: Optional[str] = None, status: Optional[str] = None) -> List[Dict]:
     """Fetch campaigns with filters"""
     conn = get_db_connection()
     if not conn:
@@ -76,7 +76,7 @@ def get_campaigns(user_id: Optional[int] = None, status: Optional[str] = None) -
         return []
 
 
-def get_campaign_details(campaign_id: int) -> Optional[Dict]:
+def get_campaign_details(campaign_id: str) -> Optional[Dict]:
     """Get detailed campaign information"""
     conn = get_db_connection()
     if not conn:
@@ -104,7 +104,7 @@ def get_campaign_details(campaign_id: int) -> Optional[Dict]:
         return None
 
 
-def get_campaign_content(campaign_id: int, status: Optional[str] = None) -> List[Dict]:
+def get_campaign_content(campaign_id: str, status: Optional[str] = None) -> List[Dict]:
     """Get content drafts for a campaign"""
     conn = get_db_connection()
     if not conn:
@@ -137,7 +137,7 @@ def get_campaign_content(campaign_id: int, status: Optional[str] = None) -> List
         return []
 
 
-def get_brand_voice_profiles(campaign_id: Optional[int] = None) -> List[Dict]:
+def get_brand_voice_profiles(campaign_id: Optional[str] = None) -> List[Dict]:
     """Fetch brand voice profiles, optionally filtered by campaign"""
     conn = get_db_connection()
     if not conn:
@@ -183,8 +183,33 @@ def get_brand_voice_profile(profile_id: str) -> Optional[Dict]:
         return None
 
 
-def create_campaign(name: str, target_audience: str, branding_json: Dict,
-                   user_id: int = 1, brand_voice_profile_id: Optional[str] = None) -> Optional[int]:
+def get_default_user_id() -> Optional[str]:
+    """Fetch the first user ID (UUID) if present."""
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute("""
+                SELECT id
+                FROM users
+                ORDER BY created_at ASC
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            return str(row["id"]) if row and row.get("id") else None
+    except Exception:
+        return None
+
+
+def create_campaign(
+    name: str,
+    target_audience: Dict[str, Any],
+    branding_json: Dict[str, Any],
+    user_id: Optional[str] = None,
+    brand_voice_profile_id: Optional[str] = None,
+) -> Optional[str]:
     """Create a new campaign"""
     conn = get_db_connection()
     if not conn:
@@ -194,9 +219,15 @@ def create_campaign(name: str, target_audience: str, branding_json: Dict,
         with conn.cursor() as cursor:
             cursor.execute("""
                 INSERT INTO campaigns (user_id, name, target_audience, branding_json, status, brand_voice_profile_id)
-                VALUES (%s, %s, %s, %s, 'active', %s)
+                VALUES (%s::uuid, %s, %s::jsonb, %s::jsonb, 'active', %s::uuid)
                 RETURNING id
-            """, (user_id, name, target_audience, json.dumps(branding_json), brand_voice_profile_id))
+            """, (
+                user_id,
+                name,
+                json.dumps(target_audience),
+                json.dumps(branding_json),
+                brand_voice_profile_id,
+            ))
 
             campaign_id = cursor.fetchone()[0]
             conn.commit()
@@ -207,8 +238,14 @@ def create_campaign(name: str, target_audience: str, branding_json: Dict,
         return None
 
 
-def update_campaign(campaign_id: int, name: str, target_audience: str,
-                   branding_json: Dict, status: str, brand_voice_profile_id: Optional[str] = None) -> bool:
+def update_campaign(
+    campaign_id: str,
+    name: str,
+    target_audience: Dict[str, Any],
+    branding_json: Dict[str, Any],
+    status: str,
+    brand_voice_profile_id: Optional[str] = None,
+) -> bool:
     """Update an existing campaign"""
     conn = get_db_connection()
     if not conn:
@@ -218,9 +255,9 @@ def update_campaign(campaign_id: int, name: str, target_audience: str,
         with conn.cursor() as cursor:
             cursor.execute("""
                 UPDATE campaigns
-                SET name = %s, target_audience = %s, branding_json = %s, status = %s, brand_voice_profile_id = %s
+                SET name = %s, target_audience = %s::jsonb, branding_json = %s::jsonb, status = %s, brand_voice_profile_id = %s::uuid
                 WHERE id = %s
-            """, (name, target_audience, json.dumps(branding_json), status, brand_voice_profile_id, campaign_id))
+            """, (name, json.dumps(target_audience), json.dumps(branding_json), status, brand_voice_profile_id, campaign_id))
 
             conn.commit()
             return True
@@ -230,7 +267,7 @@ def update_campaign(campaign_id: int, name: str, target_audience: str,
         return False
 
 
-def delete_campaign(campaign_id: int) -> bool:
+def delete_campaign(campaign_id: str) -> bool:
     """Delete a campaign and all associated content"""
     conn = get_db_connection()
     if not conn:
@@ -355,7 +392,7 @@ def render_campaign_card(campaign: Dict):
         st.markdown("---")
 
 
-def show_campaign_details(campaign_id: int):
+def show_campaign_details(campaign_id: str):
     """Show detailed view of a campaign"""
 
     # Back button
@@ -642,13 +679,16 @@ def show_create_campaign_form():
             if tagline:
                 branding_json["tagline"] = tagline
 
-            # Create campaign
+            # Create campaign (target_audience is stored as JSONB)
+            target_audience_json = {"description": target_audience.strip()}
+            resolved_user_id = st.session_state.get("user_id") or get_default_user_id()
+
             campaign_id = create_campaign(
                 name=name,
-                target_audience=target_audience,
+                target_audience=target_audience_json,
                 branding_json=branding_json,
-                user_id=st.session_state.get('user_id', 1),
-                brand_voice_profile_id=selected_profile_id
+                user_id=resolved_user_id,
+                brand_voice_profile_id=selected_profile_id,
             )
 
             if campaign_id:
@@ -660,7 +700,7 @@ def show_create_campaign_form():
                 st.error("Failed to create campaign")
 
 
-def show_edit_campaign_form(campaign_id: int):
+def show_edit_campaign_form(campaign_id: str):
     """Show form to edit an existing campaign"""
 
     # Fetch campaign
@@ -825,8 +865,14 @@ def show_edit_campaign_form(campaign_id: int):
             if tagline:
                 branding_json["tagline"] = tagline
 
-            # Update campaign
-            if update_campaign(campaign_id, name, target_audience, branding_json, status, selected_profile_id):
+            # Update campaign (target_audience stored as JSONB)
+            try:
+                parsed_audience = json.loads(target_audience)
+                target_audience_json = parsed_audience if isinstance(parsed_audience, dict) else {"description": target_audience.strip()}
+            except json.JSONDecodeError:
+                target_audience_json = {"description": target_audience.strip()}
+
+            if update_campaign(campaign_id, name, target_audience_json, branding_json, status, selected_profile_id):
                 st.success("Campaign updated successfully!")
                 del st.session_state['edit_campaign_id']
                 st.session_state['selected_campaign_id'] = campaign_id

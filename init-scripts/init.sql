@@ -3,9 +3,11 @@
 -- Description: Comprehensive schema for marketing automation with multi-agent system
 
 -- Create additional databases for n8n and matomo
-CREATE DATABASE n8n;
-CREATE DATABASE matomo;
-CREATE DATABASE marketing;
+-- NOTE: Docker's postgres image may already create a database via POSTGRES_DB.
+-- CREATE DATABASE does not support IF NOT EXISTS, so we use a psql \gexec guard.
+SELECT 'CREATE DATABASE n8n' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'n8n')\gexec
+SELECT 'CREATE DATABASE matomo' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'matomo')\gexec
+SELECT 'CREATE DATABASE marketing' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'marketing')\gexec
 
 -- Connect to marketing database
 \c marketing
@@ -160,6 +162,20 @@ CREATE TABLE competitors (
 CREATE INDEX idx_competitors_campaign ON competitors(campaign_id);
 CREATE INDEX idx_competitors_last_scraped ON competitors(last_scraped DESC);
 
+-- Research results (web/news scraping + summarization outputs)
+CREATE TABLE research_results (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    campaign_id UUID REFERENCES campaigns(id) ON DELETE CASCADE,
+    query TEXT NOT NULL,
+    source VARCHAR(100),  -- searxng, web_scraping, gov_data_tool, etc.
+    results JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_research_results_campaign ON research_results(campaign_id);
+CREATE INDEX idx_research_results_created ON research_results(created_at DESC);
+CREATE INDEX idx_research_results_query ON research_results USING gin (query gin_trgm_ops);
+
 CREATE TABLE market_insights (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     campaign_id UUID REFERENCES campaigns(id) ON DELETE CASCADE,
@@ -172,6 +188,22 @@ CREATE TABLE market_insights (
 
 CREATE INDEX idx_market_insights_campaign ON market_insights(campaign_id);
 CREATE INDEX idx_market_insights_segment ON market_insights(segment);
+
+-- Content analysis outputs (topics/entities/sentiment) for drafts and published content
+CREATE TABLE content_analysis (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    content_id UUID REFERENCES content_drafts(id) ON DELETE CASCADE,
+    analysis_type VARCHAR(50) NOT NULL,  -- sentiment, entities, topics, summary, etc.
+    results JSONB NOT NULL,
+    sentiment_score DECIMAL(5,4),
+    topics JSONB,
+    entities JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_content_analysis_content ON content_analysis(content_id);
+CREATE INDEX idx_content_analysis_type ON content_analysis(analysis_type);
+CREATE INDEX idx_content_analysis_created ON content_analysis(created_at DESC);
 
 CREATE TABLE trends (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -187,6 +219,19 @@ CREATE INDEX idx_trends_topic ON trends(topic);
 CREATE INDEX idx_trends_score ON trends(score DESC);
 CREATE INDEX idx_trends_detected ON trends(detected_at DESC);
 CREATE INDEX idx_trends_category ON trends(category);
+
+-- Workflow/user activity log (n8n orchestrator auditing)
+CREATE TABLE user_activity (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    action VARCHAR(255) NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data JSONB
+);
+
+CREATE INDEX idx_user_activity_user ON user_activity(user_id);
+CREATE INDEX idx_user_activity_action ON user_activity(action);
+CREATE INDEX idx_user_activity_timestamp ON user_activity(timestamp DESC);
 
 -- ==================== PUBLISHING & TRACKING ====================
 
@@ -350,10 +395,19 @@ INSERT INTO users (email, company, full_name) VALUES
 
 -- ==================== GRANTS ====================
 
--- Grant permissions to marketing_user (from docker-compose)
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO marketing_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO marketing_user;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO marketing_user;
+-- Grant permissions to expected application roles if they exist
+DO $$
+DECLARE
+    role_name TEXT;
+BEGIN
+    FOREACH role_name IN ARRAY ARRAY['marketing_user', 'n8n'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+            EXECUTE format('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO %I', role_name);
+            EXECUTE format('GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO %I', role_name);
+            EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO %I', role_name);
+        END IF;
+    END LOOP;
+END $$;
 
 -- ==================== COMPLETION MESSAGE ====================
 
